@@ -66,9 +66,15 @@ class EmbeddingService:
         db: SASession,
         limit: int = 10,
         project: str | None = None,
+        base_query=None,
     ) -> list[tuple]:
         """
         Search contexts by semantic similarity.
+
+        Args:
+            base_query: Optional pre-built SQLAlchemy query to use instead
+                        of the default Context query. Useful for filtering
+                        by context type (e.g. session titles only).
 
         Returns list of (Context, score) tuples ordered by relevance.
         Uses brute-force cosine similarity over all stored embeddings.
@@ -77,12 +83,15 @@ class EmbeddingService:
 
         query_vec = cls.embed(query)
 
-        # Fetch contexts with embeddings, optionally filtered by project
+        # Use provided base_query or build default
         from app.models.session import Session as SessionModel
 
-        q = db.query(Context).filter(Context.embedding.isnot(None))
-        if project:
-            q = q.join(Context.session).filter(SessionModel.project == project)
+        if base_query is not None:
+            q = base_query
+        else:
+            q = db.query(Context).filter(Context.embedding.isnot(None))
+            if project:
+                q = q.join(Context.session).filter(SessionModel.project == project)
         contexts: list[Context] = q.all()
 
         scored = []
