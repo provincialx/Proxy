@@ -44,57 +44,32 @@ def _archive_session(db, session: Session) -> None:
         print(f"✓ Auto-archived session {session.id} ({session.title}) — no messages")
         return
 
-    # Try LLM summarization first
+    # Consolidate all messages into one context (with optional LLM)
     summarizer = _get_summarizer()
     msg_tuples = [(m.role, m.content) for m in messages]
-    llm_result = summarizer.summarize(msg_tuples)
+    result = summarizer.summarize(
+        msg_tuples,
+        session_title=session.title,
+        project=session.project,
+    )
 
-    if llm_result.get("summary"):
-        # LLM summarization succeeded — create ONE consolidated context
-        summary = (
-            llm_result.get("title")
-            or f"Archived session: {session.title or 'Untitled'}"
-        )
-        keywords = llm_result.get("keywords") or (session.project or "")
-        consolidated = llm_result["summary"]
-
-        ctx = Context(
-            session_id=session.id,
-            summary=summary,
-            content=consolidated,
-            keywords=keywords,
-            token_count=sum(m.tokens_used or 0 for m in messages),
-        )
-        try:
-            ctx.embedding = EmbeddingService.embed(consolidated)
-        except Exception as e:
-            print(f"⚠ Auto-archive embedding failed for summary: {e}")
-        db.add(ctx)
-        print(
-            f"✓ Auto-archived session {session.id} ({session.title}) "
-            f"— LLM summary ({len(consolidated)} chars)"
-        )
-    else:
-        # Fallback: per-message contexts (original behavior)
-        summary = f"Archived session: {session.title or 'Untitled'}"
-        for m in messages:
-            clean_content = strip_thinking(m.content)
-            ctx = Context(
-                session_id=session.id,
-                summary=summary,
-                content=clean_content,
-                keywords=session.project or "",
-                token_count=m.tokens_used,
-            )
-            try:
-                ctx.embedding = EmbeddingService.embed(clean_content)
-            except Exception as e:
-                print(f"⚠ Auto-archive embedding failed for msg {m.id}: {e}")
-            db.add(ctx)
-        print(
-            f"✓ Auto-archived session {session.id} ({session.title}) "
-            f"— {len(messages)} raw messages"
-        )
+    ctx = Context(
+        session_id=session.id,
+        summary=result.get("title")
+        or f"Archived session: {session.title or 'Untitled'}",
+        content=result.get("summary") or "",
+        keywords=result.get("keywords") or (session.project or ""),
+        token_count=sum(m.tokens_used or 0 for m in messages),
+    )
+    try:
+        ctx.embedding = EmbeddingService.embed(ctx.content or "")
+    except Exception as e:
+        print(f"⚠ Auto-archive embedding failed: {e}")
+    db.add(ctx)
+    print(
+        f"✓ Auto-archived session {session.id} ({session.title}) "
+        f"— {1} context ({len(ctx.content)} chars)"
+    )
 
     db.commit()
 

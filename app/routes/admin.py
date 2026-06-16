@@ -238,31 +238,29 @@ def admin_resummarize(session_id: str | None = None):
                     continue
 
                 msg_tuples = [(m.role, m.content) for m in messages]
-                llm_result = summarizer.summarize(msg_tuples)
-                if not llm_result.get("summary"):
-                    continue
-
-                summary = (
-                    llm_result.get("title")
-                    or f"Archived session: {s.title or 'Untitled'}"
+                result = summarizer.summarize(
+                    msg_tuples,
+                    session_title=s.title,
+                    project=s.project,
                 )
-                keywords = llm_result.get("keywords") or (s.project or "")
-                consolidated = llm_result["summary"]
+                if not result.get("summary"):
+                    continue
 
                 # Delete existing contexts for this session
                 db.query(Context).filter(Context.session_id == s.id).delete()
 
                 ctx = Context(
                     session_id=s.id,
-                    summary=summary,
-                    content=consolidated,
-                    keywords=keywords,
+                    summary=result.get("title")
+                    or f"Archived session: {s.title or 'Untitled'}",
+                    content=result["summary"],
+                    keywords=result.get("keywords") or (s.project or ""),
                     token_count=sum(m.tokens_used or 0 for m in messages),
                 )
                 try:
                     from app.services import EmbeddingService
 
-                    ctx.embedding = EmbeddingService.embed(consolidated)
+                    ctx.embedding = EmbeddingService.embed(ctx.content)
                 except Exception as e:
                     print(f"⚠ Resummarize embedding failed: {e}")
                 db.add(ctx)

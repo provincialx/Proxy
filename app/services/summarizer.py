@@ -1,10 +1,13 @@
 """
-LLM-суммаризатор диалогов для архивации сессий.
+Суммаризатор контекста для архивации сессий.
 
-Вызывает OpenAI-compatible API и возвращает структурированное саммари:
-  {title, summary, keywords}
+Режимы:
+1. Concatenation (по умолч.) — склеивает все сообщения сессии в 1 контекст.
+   Никаких ключей не нужно.
+2. LLM (опционально) — если задан LLM_API_KEY, вместо склейки делает
+   интеллектуальное саммари через OpenAI-compatible API.
 
-Graceful degradation: если LLM недоступен → пустой dict → fallback на сырые сообщения.
+Allгда возвращает {title, summary, keywords}. Без ошибок.
 """
 
 from __future__ import annotations
@@ -12,71 +15,110 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import httpx
-
 from app.config import settings
 from app.utils import strip_thinking
 
-SYSTEM_PROMPT = """Ты — технический суммаризатор диалогов. Ниже лог чата между пользователем и AI-ассистентом.
-Верни ТОЛЬКО JSON без лишнего текста:
 
-{
-  "title": "Заголовок (макс 8 слов, отражает суть)",
-  "summary": "Техническое саммари (2-4 абзаца): что обсуждали, какие проблемы решали, какие решения приняли, какие файлы/код меняли, результат",
-  "keywords": ["слово1", "слово2", "слово3", ...]
-}
+def _clean_text(text: str | None) -> str:
+    """Strip thinking tags and collapse whitespace."""
+    return strip_thinking(text or "").strip()
 
-Правила:
-- Не используй имена участников, только технические детали
-- Если в диалоге есть код/команды — упомяни ключевые
-- keywords: 5-10 релевантных терминов"""
+
+def _concat_summary(messages: list[tuple[str, str]]) -> str:
+    """Concatenate all messages into one text block (no LLM needed)."""
+    parts = []
+    for role, content in messages:
+        text = _clean_text(content)
+        if len(text) < 15:
+            continue
+        parts.append(text)
+    return "\n\n".join(parts)
 
 
 class Summarizer:
-    """LLM-based conversation summarizer. Thread-safe (sync httpx)."""
+    """Conversation summarizer with optional LLM enhancement.
+
+    Always returns a result — no API key required.
+    LLM is used only if LLM_API_KEY is set in .env.
+    """
 
     def __init__(self):
         self.api_key = settings.llm_api_key
+        self.llm_enabled = settings.llm_enabled and bool(self.api_key)
         self.base_url = settings.llm_base_url.rstrip("/")
         self.model = settings.llm_model
-        self.enabled = settings.llm_enabled and bool(self.api_key)
         self.max_tokens = settings.llm_max_tokens
 
-    def _format_conversation(self, messages: list[tuple[str, str]]) -> str:
-        """Format (role, content) pairs into a prompt block."""
-        parts = []
-        for role, content in messages:
-            text = strip_thinking(content or "").strip()
-            if len(text) < 15:
-                continue
-            # Truncate individual messages to avoid prompt blowup
-            if len(text) > 4000:
-                text = text[:4000] + " ...[truncated]"
-            parts.append(f"[{role}] {text}")
-        return "\n\n".join(parts)
-
-    def summarize(self, messages: list[tuple[str, str]]) -> dict[str, Any]:
+    def summarize(
+        self,
+        messages: list[tuple[str, str]],
+        session_title: str | None = None,
+        project: str | None = None,
+    ) -> dict[str, Any]:
         """Summarize a conversation.
 
         Args:
             messages: list of (role, content) tuples.
+            session_title: original session title (used as fallback).
+            project: project name (used as keywords).
 
         Returns:
             {"title": str, "summary": str, "keywords": str}
-            or {} if summarization fails / disabled.
+            Всегда возвращает результат, даже пустой.
         """
-        if not self.enabled:
-            return {}
+        if not messages:
+            return {
+                "title": session_title or "",
+                "summary": "",
+                "keywords": project or "",
+            }
 
-        conversation = self._format_conversation(messages)
+        # Build plain-text conversation (always needed for concat fallback)
+        all_texts = []
+        for role, content in messages:
+            text = _clean_text(content)
+            if len(text) < 15:
+                continue
+            all_texts.append(text)
+
+        if not all_texts:
+            return {
+                "title": session_title or "",
+                "summary": "",
+                "keywords": project or "",
+            }
+
+        # Try LLM if enabled
+        if self.llm_enabled:
+            llm_result = self._llm_summarize(messages, all_texts)
+            if llm_result:
+                return llm_result
+
+        # Fallback: concatenate all messages into one context
+        consolidated = "\n\n".join(all_texts)
+        # Truncate to avoid bloating the DB
+        if len(consolidated) > 50000:
+            consolidated = consolidated[:50000] + "\n\n...[truncated]"
+
+        return {
+            "title": session_title or "Archived session",
+            "summary": consolidated,
+            "keywords": project or "",
+        }
+
+    def _llm_summarize(
+        self,
+        raw_messages: list[tuple[str, str]],
+        cleaned_texts: list[str],
+    ) -> dict[str, Any] | None:
+        """Call LLM API for smart summarization. Returns None on failure."""
+        conversation = self._format_for_llm(raw_messages)
         if not conversation:
-            return {}
-
-        # Truncate conversation to avoid token limit (max ~100K chars)
-        if len(conversation) > 100000:
-            conversation = conversation[:100000] + "\n\n...[truncated]"
+            return None
 
         try:
+            import httpx
+
             with httpx.Client(timeout=120.0) as client:
                 resp = client.post(
                     f"{self.base_url}/chat/completions",
@@ -87,7 +129,7 @@ class Summarizer:
                     json={
                         "model": self.model,
                         "messages": [
-                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "system", "content": _LLM_PROMPT},
                             {"role": "user", "content": conversation},
                         ],
                         "temperature": 0.3,
@@ -115,5 +157,35 @@ class Summarizer:
                     "keywords": keywords,
                 }
         except Exception as e:
-            print(f"⚠ LLM summarization failed: {e}")
-            return {}
+            print(f"⚠ LLM summarization failed, using concat fallback: {e}")
+            return None
+
+    def _format_for_llm(self, messages: list[tuple[str, str]]) -> str:
+        """Format messages for LLM prompt (with role labels)."""
+        parts = []
+        for role, content in messages:
+            text = _clean_text(content)
+            if len(text) < 15:
+                continue
+            if len(text) > 4000:
+                text = text[:4000] + " ...[truncated]"
+            parts.append(f"[{role}] {text}")
+        result = "\n\n".join(parts)
+        if len(result) > 100000:
+            result = result[:100000] + "\n\n...[truncated]"
+        return result
+
+
+_LLM_PROMPT = """Ты — технический суммаризатор диалогов. Ниже лог чата между пользователем и AI-ассистентом.
+Верни ТОЛЬКО JSON:
+
+{
+  "title": "Заголовок (макс 8 слов, отражает суть)",
+  "summary": "Техническое саммари (2-4 абзаца): что обсуждали, какие проблемы решали, какие решения приняли, какие файлы/код меняли, результат",
+  "keywords": ["слово1", "слово2", "слово3", ...]
+}
+
+Правила:
+- Не используй имена участников, только технические детали
+- Если в диалоге есть код/команды — упомяни ключевые
+- keywords: 5-10 релевантных терминов"""
