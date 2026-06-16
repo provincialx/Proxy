@@ -57,10 +57,32 @@ class DbResetResult(BaseModel):
 
 @router.get("/projects", response_model=ProjectsResult)
 def admin_projects():
-    """List available projects from archived Zed threads."""
-    from sync_agent import get_available_projects
+    """List available projects.
 
-    return ProjectsResult(projects=get_available_projects())
+    Tries Zed SQLite first (sync_agent), falls back to PostgreSQL sessions.
+    """
+    try:
+        from sync_agent import get_available_projects
+
+        projects = get_available_projects()
+        if projects:
+            return ProjectsResult(projects=projects)
+    except Exception as e:
+        print(f"⚠ admin/projects: sync_agent failed ({e}), fallback to DB")
+
+    # Fallback: projects from PostgreSQL sessions
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(Session.project)
+            .filter(Session.project.isnot(None), Session.project != "")
+            .distinct()
+            .order_by(Session.project)
+            .all()
+        )
+        return ProjectsResult(projects=[r[0] for r in rows])
+    finally:
+        db.close()
 
 
 @router.post("/sync", response_model=SyncResult)
