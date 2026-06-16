@@ -1,0 +1,674 @@
+<!doctype html>
+<html lang="ru">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>CacheProxy</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            body {
+                font-family:
+                    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                    sans-serif;
+                background: #0d1117;
+                color: #e6edf3;
+                min-height: 100vh;
+            }
+            .header {
+                background: #161b22;
+                border-bottom: 1px solid #30363d;
+                padding: 16px 24px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+            }
+            .header h1 {
+                font-size: 20px;
+                font-weight: 600;
+                color: #f0f6fc;
+            }
+            .header span {
+                color: #8b949e;
+                font-size: 14px;
+            }
+            .container {
+                max-width: 960px;
+                margin: 0 auto;
+                padding: 24px;
+            }
+            .card {
+                background: #161b22;
+                border: 1px solid #30363d;
+                border-radius: 8px;
+                padding: 20px;
+                margin-bottom: 20px;
+            }
+            .card h2 {
+                font-size: 16px;
+                font-weight: 600;
+                margin-bottom: 16px;
+                color: #f0f6fc;
+            }
+            .row {
+                display: flex;
+                gap: 12px;
+                margin-bottom: 12px;
+                flex-wrap: wrap;
+            }
+            input,
+            select,
+            textarea {
+                background: #0d1117;
+                border: 1px solid #30363d;
+                border-radius: 6px;
+                padding: 8px 12px;
+                color: #e6edf3;
+                font-size: 14px;
+                flex: 1;
+                min-width: 200px;
+            }
+            input:focus,
+            select:focus,
+            textarea:focus {
+                outline: none;
+                border-color: #58a6ff;
+            }
+            textarea {
+                resize: vertical;
+                min-height: 60px;
+                font-family: inherit;
+            }
+            button {
+                background: #238636;
+                color: #fff;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 20px;
+                font-size: 14px;
+                font-weight: 500;
+                cursor: pointer;
+                white-space: nowrap;
+                transition: background 0.15s;
+            }
+            button:hover {
+                background: #2ea043;
+            }
+            button:disabled {
+                opacity: 0.6;
+                cursor: not-allowed;
+            }
+            button:disabled:hover {
+                background: #238636;
+            }
+            button.danger {
+                background: #da3633;
+            }
+            button.danger:hover {
+                background: #f85149;
+            }
+            button.secondary {
+                background: #21262d;
+                border: 1px solid #30363d;
+            }
+            button.secondary:hover {
+                background: #30363d;
+            }
+            .tag {
+                display: inline-block;
+                background: #1f2937;
+                color: #58a6ff;
+                padding: 2px 8px;
+                border-radius: 12px;
+                font-size: 12px;
+                margin: 2px;
+            }
+            .result-item {
+                border: 1px solid #30363d;
+                border-radius: 6px;
+                padding: 12px;
+                margin-bottom: 8px;
+                background: #0d1117;
+            }
+            .result-item .meta {
+                font-size: 12px;
+                color: #8b949e;
+                margin-bottom: 4px;
+            }
+            .result-item .score {
+                color: #d2a8ff;
+                font-weight: 600;
+            }
+            .result-item .content {
+                font-size: 14px;
+                line-height: 1.5;
+                margin-top: 4px;
+            }
+            .badge {
+                display: inline-block;
+                font-size: 11px;
+                padding: 2px 8px;
+                border-radius: 10px;
+                background: #1f2937;
+                color: #8b949e;
+                margin-left: 6px;
+            }
+            .badge.project {
+                background: #0d419d;
+                color: #58a6ff;
+            }
+            .btn-del {
+                cursor: pointer;
+                color: #f85149;
+                font-size: 12px;
+                padding: 2px 8px;
+                border-radius: 4px;
+                border: 1px solid #f85149;
+                background: none;
+                transition: background 0.15s;
+                white-space: nowrap;
+            }
+            .btn-del:hover {
+                background: #f85149;
+                color: #fff;
+            }
+            .empty {
+                color: #8b949e;
+                text-align: center;
+                padding: 24px;
+                font-size: 14px;
+            }
+            .tabs {
+                display: flex;
+                gap: 4px;
+                margin-bottom: 16px;
+            }
+            .tab {
+                padding: 8px 16px;
+                border-radius: 6px 6px 0 0;
+                cursor: pointer;
+                font-size: 14px;
+                background: #0d1117;
+                color: #8b949e;
+                border: 1px solid #30363d;
+                border-bottom: none;
+            }
+            .tab.active {
+                background: #161b22;
+                color: #f0f6fc;
+                font-weight: 500;
+            }
+            .tab-content {
+                display: none;
+            }
+            .tab-content.active {
+                display: block;
+            }
+            .log {
+                font-size: 12px;
+                color: #8b949e;
+                margin-top: 8px;
+            }
+            .log.success {
+                color: #3fb950;
+            }
+            .log.error {
+                color: #f85149;
+            }
+            select {
+                cursor: pointer;
+            }
+            label {
+                font-size: 13px;
+                color: #8b949e;
+                display: block;
+                margin-bottom: 4px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <div><h1>🧠 CacheProxy</h1></div>
+            <span>Кеширование контекста чатов</span>
+        </div>
+
+        <div class="container">
+            <!-- Tabs -->
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('chat')">💬 Чат</div>
+                <div class="tab" onclick="switchTab('search')">🔍 Поиск</div>
+                <div class="tab" onclick="switchTab('sessions')">📁 Сессии</div>
+            </div>
+
+            <!-- CHAT TAB -->
+            <div id="tab-chat" class="tab-content active">
+                <div class="card">
+                    <h2>Новое сообщение</h2>
+                    <div class="row">
+                        <input
+                            id="chat-project"
+                            placeholder="Проект (например: CacheProxy)"
+                            value="CacheProxy"
+                        />
+                        <input
+                            id="chat-title"
+                            placeholder="Название сессии"
+                            value="Чат с агентом"
+                        />
+                    </div>
+                    <div style="margin-bottom: 8px">
+                        <label>Кто говорит</label>
+                        <select id="chat-role">
+                            <option value="user">👤 Я (user)</option>
+                            <option value="assistant">
+                                🤖 Ассистент (assistant)
+                            </option>
+                            <option value="system">⚙️ Система (system)</option>
+                        </select>
+                    </div>
+                    <textarea
+                        id="chat-content"
+                        placeholder="Напишите сообщение..."
+                        style="margin-bottom: 12px"
+                    ></textarea>
+                    <div class="row">
+                        <button id="btn-send" onclick="sendMessage()">
+                            📨 Отправить
+                        </button>
+                        <button class="secondary" onclick="saveContext()">
+                            💾 Сохранить как контекст
+                        </button>
+                    </div>
+                    <div id="chat-log" class="log"></div>
+                </div>
+
+                <div class="card" id="chat-history" style="display: none">
+                    <h2>📜 Последние сообщения</h2>
+                    <div id="chat-messages"></div>
+                </div>
+            </div>
+
+            <!-- SEARCH TAB -->
+            <div id="tab-search" class="tab-content">
+                <div class="card">
+                    <h2>🔍 Семантический поиск</h2>
+                    <div class="row">
+                        <input
+                            id="search-query"
+                            placeholder="Что ищем? Например: подвеска для бельгийской трассы"
+                            style="flex: 3"
+                        />
+                        <input
+                            id="search-project"
+                            placeholder="Проект (оставь пустым — все)"
+                            style="flex: 1"
+                        />
+                        <button onclick="doSearch()">🔍 Искать</button>
+                    </div>
+                </div>
+                <div class="card">
+                    <h2>Результаты</h2>
+                    <div id="search-results">
+                        <div class="empty">
+                            Начните поиск — результаты появятся здесь
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SESSIONS TAB -->
+            <div id="tab-sessions" class="tab-content">
+                <div class="card">
+                    <h2>📁 Сессии</h2>
+                    <div class="row">
+                        <input
+                            id="sessions-filter"
+                            placeholder="Фильтр по проекту"
+                            style="max-width: 300px"
+                        />
+                        <button onclick="loadSessions()">🔄 Обновить</button>
+                    </div>
+                </div>
+                <div class="card">
+                    <div id="sessions-list">
+                        <div class="empty">Загрузите список сессий</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            const BASE = "";
+
+            function $(id) {
+                return document.getElementById(id);
+            }
+
+            function switchTab(name) {
+                document
+                    .querySelectorAll(".tab")
+                    .forEach((t) => t.classList.remove("active"));
+                document
+                    .querySelectorAll(".tab-content")
+                    .forEach((t) => t.classList.remove("active"));
+                document
+                    .querySelector(`.tab[onclick*="${name}"]`)
+                    .classList.add("active");
+                $(`tab-${name}`).classList.add("active");
+                if (name === "sessions") loadSessions();
+                if (name === "search") doSearch();
+            }
+
+            function log(el, msg, type = "") {
+                el.innerHTML = `<span class="${type}">${msg}</span>`;
+                setTimeout(() => {
+                    if (el.innerHTML === `<span class="${type}">${msg}</span>`)
+                        el.innerHTML = "";
+                }, 4000);
+            }
+
+            // ─── SEND MESSAGE ────────────────────────────────────
+
+            let currentSessionId = null;
+
+            async function sendMessage() {
+                const project = $("chat-project").value.trim() || "default";
+                const title = $("chat-title").value.trim() || "Чат";
+                const role = $("chat-role").value;
+                const content = $("chat-content").value.trim();
+                if (!content) {
+                    log($("chat-log"), "Напишите сообщение", "error");
+                    return;
+                }
+
+                const btn = $("btn-send");
+                btn.disabled = true;
+                btn.textContent = "⏳ Отправка...";
+
+                try {
+                    // Find or create session
+                    let sid = currentSessionId;
+                    if (!sid) {
+                        const r = await fetch(
+                            `${BASE}/sessions?project=${encodeURIComponent(project)}&limit=1`,
+                        );
+                        const data = await r.json();
+                        if (data.total > 0) {
+                            sid = data.sessions[0].id;
+                        } else {
+                            const r2 = await fetch(`${BASE}/sessions`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ title, project }),
+                            });
+                            const s = await r2.json();
+                            sid = s.id;
+                        }
+                        currentSessionId = sid;
+                    }
+
+                    // Send message
+                    const r = await fetch(`${BASE}/messages`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            session_id: sid,
+                            role,
+                            content,
+                        }),
+                    });
+                    if (!r.ok) throw new Error(await r.text());
+
+                    $("chat-content").value = "";
+                    log($("chat-log"), "✅ Сообщение отправлено", "success");
+
+                    // Show last messages + refresh sessions list in background
+                    loadLastMessages(sid);
+                    // Refresh sessions list so count updates when user switches tab
+                    if (typeof loadSessions === "function")
+                        setTimeout(loadSessions, 300);
+                } catch (e) {
+                    log($("chat-log"), `❌ Ошибка: ${e.message}`, "error");
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = "📨 Отправить";
+                }
+            }
+
+            async function loadLastMessages(sid) {
+                try {
+                    const r = await fetch(`${BASE}/messages/${sid}?limit=5`);
+                    const msgs = await r.json();
+                    const container = $("chat-messages");
+                    container.innerHTML = "";
+                    $("chat-history").style.display = "block";
+
+                    // Show session title
+                    const sr = await fetch(`${BASE}/sessions/${sid}`);
+                    const session = await sr.json();
+                    container.innerHTML = `<div style="margin-bottom:8px;color:#8b949e;font-size:13px">📁 ${session.project || ""} / ${session.title || ""}</div>`;
+
+                    msgs.slice(-5).forEach((m) => {
+                        const icon =
+                            m.role === "user"
+                                ? "👤"
+                                : m.role === "assistant"
+                                  ? "🤖"
+                                  : "⚙️";
+                        container.innerHTML += `
+        <div class="result-item">
+          <div class="meta">${icon} ${m.role} · ${new Date(m.created_at).toLocaleString("ru")}</div>
+          <div class="content">${escapeHtml(m.content)}</div>
+        </div>`;
+                    });
+                } catch (e) {}
+            }
+
+            async function saveContext() {
+                const content = $("chat-content").value.trim();
+                if (!content || !currentSessionId) {
+                    log($("chat-log"), "Сначала отправьте сообщение", "error");
+                    return;
+                }
+                try {
+                    const r = await fetch(`${BASE}/context`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            session_id: currentSessionId,
+                            content,
+                        }),
+                    });
+                    if (r.ok) {
+                        log($("chat-log"), "✅ Контекст сохранён", "success");
+                    }
+                } catch (e) {
+                    log($("chat-log"), `❌ Ошибка: ${e.message}`, "error");
+                }
+            }
+
+            // ─── SEARCH ───────────────────────────────────────────
+
+            async function doSearch() {
+                const query = $("search-query").value.trim();
+                const project = $("search-project").value.trim();
+
+                const params = new URLSearchParams({ query, limit: 10 });
+                if (project) params.set("project", project);
+
+                try {
+                    const r = await fetch(`${BASE}/context/search?${params}`);
+                    const data = await r.json();
+                    const container = $("search-results");
+
+                    if (data.results.length === 0) {
+                        container.innerHTML =
+                            '<div class="empty">Ничего не найдено</div>';
+                        return;
+                    }
+
+                    const label = query
+                        ? `Найдено: ${data.results.length} · запрос: "${data.query}"`
+                        : `Последние контексты: ${data.results.length}`;
+                    container.innerHTML = `<div style="font-size:13px;color:#8b949e;margin-bottom:12px">${label}</div>`;
+
+                    data.results.forEach((res) => {
+                        container.innerHTML += `
+        <div class="result-item" id="ctx-${res.id}">
+          <div style="display:flex;justify-content:space-between;align-items:start">
+            <div class="meta">
+              <span class="score">${(res.score * 100).toFixed(1)}%</span> совпадение
+              ${res.summary ? `· ${res.summary}` : ""}
+              <span class="badge project">${getProjectName(res.session_id)}</span>
+            </div>
+            <button class="btn-del" onclick="deleteContext('${res.id}')" title="Удалить">✕</button>
+          </div>
+          <div class="content">${escapeHtml(res.content)}</div>
+          ${
+              res.keywords
+                  ? `<div style="margin-top:6px">${res.keywords
+                        .split(",")
+                        .map((k) => `<span class="tag">${k.trim()}</span>`)
+                        .join("")}</div>`
+                  : ""
+          }
+        </div>`;
+                    });
+
+                    // Fetch project names
+                    fetch(`${BASE}/sessions`)
+                        .then((r) => r.json())
+                        .then((data) => {
+                            window._sessions = {};
+                            data.sessions.forEach((s) => {
+                                window._sessions[s.id] = s.project || "—";
+                            });
+                        });
+                } catch (e) {
+                    $("search-results").innerHTML =
+                        `<div class="empty" style="color:#f85149">Ошибка: ${e.message}</div>`;
+                }
+            }
+
+            function getProjectName(sessionId) {
+                return window._sessions?.[sessionId] || "...";
+            }
+
+            async function deleteContext(ctxId) {
+                if (!confirm("Удалить этот контекст?")) return;
+                try {
+                    const r = await fetch(`${BASE}/context/${ctxId}`, {
+                        method: "DELETE",
+                    });
+                    if (r.ok) {
+                        const el = document.getElementById(`ctx-${ctxId}`);
+                        if (el) el.remove();
+                    }
+                } catch (e) {
+                    alert(`Ошибка: ${e.message}`);
+                }
+            }
+
+            async function deleteSession(sid) {
+                if (!confirm("Удалить сессию и все её сообщения?")) return;
+                try {
+                    const r = await fetch(`${BASE}/sessions/${sid}`, {
+                        method: "DELETE",
+                    });
+                    if (r.ok) {
+                        const el = document.getElementById(`sess-${sid}`);
+                        if (el) el.remove();
+                    }
+                } catch (e) {
+                    alert(`Ошибка: ${e.message}`);
+                }
+            }
+
+            // ─── SESSIONS ─────────────────────────────────────────
+
+            async function loadSessions() {
+                const project = $("sessions-filter").value.trim();
+                const params = new URLSearchParams({ limit: 50 });
+                if (project) params.set("project", project);
+
+                try {
+                    const r = await fetch(`${BASE}/sessions?${params}`);
+                    const data = await r.json();
+                    const container = $("sessions-list");
+
+                    if (data.sessions.length === 0) {
+                        container.innerHTML =
+                            '<div class="empty">Нет сессий</div>';
+                        return;
+                    }
+
+                    container.innerHTML = `<div style="font-size:13px;color:#8b949e;margin-bottom:12px">Всего: ${data.total}</div>`;
+
+                    data.sessions.forEach((s) => {
+                        container.innerHTML += `
+        <div class="result-item" id="sess-${s.id}">
+          <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="showSession('${s.id}')">
+            <div style="flex:1;cursor:pointer" onclick="showSession('${s.id}')">
+              <strong>${escapeHtml(s.title || "Без названия")}</strong>
+              <span class="badge project">${escapeHtml(s.project || "—")}</span>
+              <span style="font-size:12px;color:#8b949e;margin-left:12px">${s.message_count} сообщ. · ${new Date(s.updated_at).toLocaleDateString("ru")}</span>
+            </div>
+            <button class="btn-del" onclick="event.stopPropagation();deleteSession('${s.id}')" title="Удалить">✕</button>
+          </div>
+        </div>`;
+                    });
+                } catch (e) {
+                    $("sessions-list").innerHTML =
+                        `<div class="empty" style="color:#f85149">Ошибка: ${e.message}</div>`;
+                }
+            }
+
+            async function showSession(sid) {
+                const r = await fetch(`${BASE}/messages/${sid}?limit=100`);
+                const msgs = await r.json();
+                const container = $("sessions-list");
+
+                let html = `<button class="secondary" onclick="loadSessions()" style="margin-bottom:12px">← Назад</button>
+    <div style="font-size:13px;color:#8b949e;margin-bottom:12px">Сообщений: ${msgs.length}</div>`;
+
+                msgs.forEach((m) => {
+                    const icon =
+                        m.role === "user"
+                            ? "👤"
+                            : m.role === "assistant"
+                              ? "🤖"
+                              : "⚙️";
+                    html += `
+      <div class="result-item">
+        <div class="meta">${icon} ${m.role} · ${new Date(m.created_at).toLocaleString("ru")}</div>
+        <div class="content">${escapeHtml(m.content)}</div>
+      </div>`;
+                });
+                container.innerHTML = html;
+            }
+
+            function escapeHtml(str) {
+                const div = document.createElement("div");
+                div.textContent = str;
+                return div.innerHTML;
+            }
+
+            // Init: load project names for search
+            fetch(`${BASE}/sessions`)
+                .then((r) => r.json())
+                .then((data) => {
+                    window._sessions = {};
+                    data.sessions.forEach((s) => {
+                        window._sessions[s.id] = s.project || "—";
+                    });
+                })
+                .catch(() => {});
+
+            // Load sessions on page load
+            setTimeout(loadSessions, 500);
+        </script>
+    </body>
+</html>

@@ -1,0 +1,21 @@
+# Model cache (downloaded on first start, ~252MB)
+.model_cache/
+.server_pid
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env
+
+# OS
+Thumbs.db
+.DS_Store
