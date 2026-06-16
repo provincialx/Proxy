@@ -13,6 +13,7 @@ from app.models.message import Message
 from app.models.session import Session
 from app.schemas import SessionCreate, SessionList, SessionOut
 from app.services import EmbeddingService
+from app.services.summarizer import Summarizer
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -74,7 +75,6 @@ def archive_session(session_id: UUID, db: SASession = Depends(get_db)):
     session.status = "archived"
     session.archived_at = datetime.now(timezone.utc)
 
-    # Create individual context entries per message for granular search
     messages = (
         db.query(Message)
         .filter(Message.session_id == session_id)
@@ -82,21 +82,27 @@ def archive_session(session_id: UUID, db: SASession = Depends(get_db)):
         .all()
     )
     if messages:
-        summary = f"Archived session: {session.title or 'Untitled'}"
+        summarizer = Summarizer()
+        msg_tuples = [(m.role, m.content) for m in messages]
+        result = summarizer.summarize(
+            msg_tuples,
+            session_title=session.title,
+            project=session.project,
+        )
 
-        for m in messages:
-            ctx = Context(
-                session_id=session_id,
-                summary=summary,
-                content=m.content,
-                keywords=session.project or "",
-                token_count=m.tokens_used,
-            )
-            try:
-                ctx.embedding = EmbeddingService.embed(m.content)
-            except Exception as e:
-                print(f"⚠ Archive embedding failed for msg {m.id}: {e}")
-            db.add(ctx)
+        ctx = Context(
+            session_id=session_id,
+            summary=result.get("title")
+            or f"Archived session: {session.title or 'Untitled'}",
+            content=result.get("summary") or "",
+            keywords=result.get("keywords") or (session.project or ""),
+            token_count=sum(m.tokens_used or 0 for m in messages),
+        )
+        try:
+            ctx.embedding = EmbeddingService.embed(ctx.content or "")
+        except Exception as e:
+            print(f"⚠ Archive embedding failed: {e}")
+        db.add(ctx)
 
     db.commit()
     db.refresh(session)
