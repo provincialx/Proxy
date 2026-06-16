@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-import zstandard
 
 # Add app dir to path for utils
 sys.path.insert(0, str(Path(__file__).parent))
@@ -107,6 +106,8 @@ def _discover_schema(db_path: Path) -> None:
 def _decompress_thread_data(data: bytes) -> dict[str, Any] | None:
     """Decompress zstd data from threads.db and parse JSON."""
     try:
+        import zstandard
+
         dctx = zstandard.ZstdDecompressor()
         decompressed = dctx.decompress(data, max_output_size=50 * 1024 * 1024)
         return json.loads(decompressed.decode("utf-8"))
