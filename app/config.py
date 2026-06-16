@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     app_port: int = 8100
     debug: bool = False
 
+    # LLM summarization
+    llm_api_key: str = ""
+    llm_base_url: str = "https://api.openai.com/v1"
+    llm_model: str = "gpt-4o-mini"
+    llm_enabled: bool = True
+    llm_max_tokens: int = 1500
+
     @property
     def database_url(self) -> str:
         return (

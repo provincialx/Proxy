@@ -9,12 +9,23 @@ from app.models.context import Context
 from app.models.message import Message
 from app.models.session import Session
 from app.services import EmbeddingService
+from app.services.summarizer import Summarizer
 from app.utils import strip_thinking
 
 # Сессии без обновлений дольше этого периода — авто-архивация
 AUTO_ARCHIVE_DAYS = 7
 # Интервал проверки (секунд)
 CHECK_INTERVAL = 60
+
+# Глобальный экземпляр суммаризатора (ленивая инициализация)
+_summarizer: Summarizer | None = None
+
+
+def _get_summarizer() -> Summarizer:
+    global _summarizer
+    if _summarizer is None:
+        _summarizer = Summarizer()
+    return _summarizer
 
 
 def _archive_session(db, session: Session) -> None:
@@ -28,9 +39,44 @@ def _archive_session(db, session: Session) -> None:
         .order_by(Message.created_at.asc())
         .all()
     )
-    if messages:
-        summary = f"Archived session: {session.title or 'Untitled'}"
+    if not messages:
+        db.commit()
+        print(f"✓ Auto-archived session {session.id} ({session.title}) — no messages")
+        return
 
+    # Try LLM summarization first
+    summarizer = _get_summarizer()
+    msg_tuples = [(m.role, m.content) for m in messages]
+    llm_result = summarizer.summarize(msg_tuples)
+
+    if llm_result.get("summary"):
+        # LLM summarization succeeded — create ONE consolidated context
+        summary = (
+            llm_result.get("title")
+            or f"Archived session: {session.title or 'Untitled'}"
+        )
+        keywords = llm_result.get("keywords") or (session.project or "")
+        consolidated = llm_result["summary"]
+
+        ctx = Context(
+            session_id=session.id,
+            summary=summary,
+            content=consolidated,
+            keywords=keywords,
+            token_count=sum(m.tokens_used or 0 for m in messages),
+        )
+        try:
+            ctx.embedding = EmbeddingService.embed(consolidated)
+        except Exception as e:
+            print(f"⚠ Auto-archive embedding failed for summary: {e}")
+        db.add(ctx)
+        print(
+            f"✓ Auto-archived session {session.id} ({session.title}) "
+            f"— LLM summary ({len(consolidated)} chars)"
+        )
+    else:
+        # Fallback: per-message contexts (original behavior)
+        summary = f"Archived session: {session.title or 'Untitled'}"
         for m in messages:
             clean_content = strip_thinking(m.content)
             ctx = Context(
@@ -45,9 +91,12 @@ def _archive_session(db, session: Session) -> None:
             except Exception as e:
                 print(f"⚠ Auto-archive embedding failed for msg {m.id}: {e}")
             db.add(ctx)
+        print(
+            f"✓ Auto-archived session {session.id} ({session.title}) "
+            f"— {len(messages)} raw messages"
+        )
 
     db.commit()
-    print(f"✓ Auto-archived session {session.id} ({session.title})")
 
 
 def _archive_loop() -> None:

@@ -13,6 +13,7 @@ from app.database import SessionLocal
 from app.models.context import Context
 from app.models.message import Message
 from app.models.session import Session
+from app.services.summarizer import Summarizer
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -35,6 +36,12 @@ class ProjectsResult(BaseModel):
 class DaemonStatus(BaseModel):
     running: bool
     interval: int
+
+
+class ReSummarizeResult(BaseModel):
+    processed: int
+    summarized: int
+    errors: list[str]
 
 
 class DbResetResult(BaseModel):
@@ -172,3 +179,82 @@ def admin_db_reset():
         cache_deleted=cache_deleted,
         sent_cache_cleared=sent_cache_cleared,
     )
+
+
+@router.post("/resummarize", response_model=ReSummarizeResult)
+def admin_resummarize(session_id: str | None = None):
+    """Re-summarize archived sessions using LLM.
+
+    Without session_id — processes ALL archived sessions.
+    With session_id — processes only that session.
+    Replaces per-message contexts with a single LLM summary.
+    """
+    db = SessionLocal()
+    try:
+        q = db.query(Session).filter(Session.status == "archived")
+        if session_id:
+            from uuid import UUID
+
+            q = q.filter(Session.id == UUID(session_id))
+        sessions = q.all()
+
+        summarizer = Summarizer()
+        processed = 0
+        summarized = 0
+        errors = []
+
+        for s in sessions:
+            processed += 1
+            try:
+                messages = (
+                    db.query(Message)
+                    .filter(Message.session_id == s.id)
+                    .order_by(Message.created_at.asc())
+                    .all()
+                )
+                if not messages:
+                    continue
+
+                msg_tuples = [(m.role, m.content) for m in messages]
+                llm_result = summarizer.summarize(msg_tuples)
+                if not llm_result.get("summary"):
+                    continue
+
+                summary = (
+                    llm_result.get("title")
+                    or f"Archived session: {s.title or 'Untitled'}"
+                )
+                keywords = llm_result.get("keywords") or (s.project or "")
+                consolidated = llm_result["summary"]
+
+                # Delete existing contexts for this session
+                db.query(Context).filter(Context.session_id == s.id).delete()
+
+                ctx = Context(
+                    session_id=s.id,
+                    summary=summary,
+                    content=consolidated,
+                    keywords=keywords,
+                    token_count=sum(m.tokens_used or 0 for m in messages),
+                )
+                try:
+                    from app.services import EmbeddingService
+
+                    ctx.embedding = EmbeddingService.embed(consolidated)
+                except Exception as e:
+                    print(f"⚠ Resummarize embedding failed: {e}")
+                db.add(ctx)
+                summarized += 1
+                print(f"  ✓ Resummarized {s.id} ({s.title})")
+            except Exception as e:
+                errors.append(str(e))
+                print(f"⚠ Resummarize error session {s.id}: {e}")
+
+        db.commit()
+        return ReSummarizeResult(
+            processed=processed,
+            summarized=summarized,
+            errors=errors,
+        )
+    finally:
+        db.close()
