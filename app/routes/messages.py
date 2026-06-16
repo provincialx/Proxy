@@ -32,15 +32,16 @@ def create_message(body: MessageCreate, db: SASession = Depends(get_db)):
     db.add(message)
 
     # Auto-save as context for semantic search
+    # content хранит сырой текст (без [user]/[assistant] префикса) — чище для эмбеддинга
     ctx = Context(
         session_id=body.session_id,
-        content=f"[{body.role}] {body.content}",
+        content=body.content,
         keywords=session.project or "",
         token_count=body.tokens_used,
     )
     # Generate embedding — non-critical, message saves even if embedding fails
     try:
-        ctx.embedding = EmbeddingService.embed(ctx.content)
+        ctx.embedding = EmbeddingService.embed(body.content)
     except Exception as embed_err:
         print(f"⚠ Embedding failed (message saved without vector): {embed_err}")
     db.add(ctx)

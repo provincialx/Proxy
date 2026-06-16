@@ -327,8 +327,17 @@
                         <input
                             id="sessions-filter"
                             placeholder="Фильтр по проекту"
-                            style="max-width: 300px"
+                            style="max-width: 200px"
                         />
+                        <select
+                            id="sessions-status"
+                            style="max-width: 140px"
+                            onchange="loadSessions()"
+                        >
+                            <option value="">Все статусы</option>
+                            <option value="active">🟢 Активные</option>
+                            <option value="archived">📦 Архивные</option>
+                        </select>
                         <button onclick="loadSessions()">🔄 Обновить</button>
                     </div>
                 </div>
@@ -572,6 +581,33 @@
                 }
             }
 
+            async function archiveSession(sid) {
+                if (
+                    !confirm(
+                        "Архивировать сессию? Все сообщения будут сконсолидированы в контекст.",
+                    )
+                )
+                    return;
+                try {
+                    const r = await fetch(`${BASE}/sessions/${sid}/archive`, {
+                        method: "POST",
+                    });
+                    if (r.ok) {
+                        log(
+                            $("sessions-list"),
+                            "✅ Сессия архивирована",
+                            "success",
+                        );
+                        loadSessions();
+                    } else {
+                        const err = await r.text();
+                        alert(`Ошибка: ${err}`);
+                    }
+                } catch (e) {
+                    alert(`Ошибка: ${e.message}`);
+                }
+            }
+
             async function deleteSession(sid) {
                 if (!confirm("Удалить сессию и все её сообщения?")) return;
                 try {
@@ -591,8 +627,10 @@
 
             async function loadSessions() {
                 const project = $("sessions-filter").value.trim();
+                const status = $("sessions-status").value;
                 const params = new URLSearchParams({ limit: 50 });
                 if (project) params.set("project", project);
+                if (status) params.set("status", status);
 
                 try {
                     const r = await fetch(`${BASE}/sessions?${params}`);
@@ -608,6 +646,8 @@
                     container.innerHTML = `<div style="font-size:13px;color:#8b949e;margin-bottom:12px">Всего: ${data.total}</div>`;
 
                     data.sessions.forEach((s) => {
+                        const statusIcon =
+                            s.status === "archived" ? "📦" : "🟢";
                         container.innerHTML += `
         <div class="result-item" id="sess-${s.id}">
           <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="showSession('${s.id}')">
@@ -615,8 +655,12 @@
               <strong>${escapeHtml(s.title || "Без названия")}</strong>
               <span class="badge project">${escapeHtml(s.project || "—")}</span>
               <span style="font-size:12px;color:#8b949e;margin-left:12px">${s.message_count} сообщ. · ${new Date(s.updated_at).toLocaleDateString("ru")}</span>
+              <span style="font-size:12px;margin-left:8px">${statusIcon} ${s.status}</span>
             </div>
-            <button class="btn-del" onclick="event.stopPropagation();deleteSession('${s.id}')" title="Удалить">✕</button>
+            <div style="display:flex;gap:4px">
+              ${s.status === "active" ? `<button class="secondary" style="font-size:12px;padding:4px 8px" onclick="event.stopPropagation();archiveSession('${s.id}')" title="Архивировать">📦</button>` : ""}
+              <button class="btn-del" onclick="event.stopPropagation();deleteSession('${s.id}')" title="Удалить">✕</button>
+            </div>
           </div>
         </div>`;
                     });

@@ -21,6 +21,8 @@ class SessionOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     metadata: str | None = Field(None, alias="metadata_")
+    status: str = "active"
+    archived_at: datetime | None = None
     message_count: int = 0
 
     model_config = {"from_attributes": True, "populate_by_name": True}

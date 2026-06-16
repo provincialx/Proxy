@@ -1,5 +1,6 @@
 """Session CRUD routes."""
 
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -7,9 +8,11 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session as SASession
 
 from app.database import get_db
+from app.models.context import Context
 from app.models.message import Message
 from app.models.session import Session
 from app.schemas import SessionCreate, SessionList, SessionOut
+from app.services import EmbeddingService
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -27,14 +30,21 @@ def create_session(body: SessionCreate, db: SASession = Depends(get_db)):
 @router.get("", response_model=SessionList)
 def list_sessions(
     project: str | None = None,
+    status: str | None = None,
     skip: int = 0,
     limit: int = 50,
     db: SASession = Depends(get_db),
 ):
-    """List sessions, newest first. Optionally filter by project."""
+    """List sessions, newest first. Optionally filter by project and status."""
     q = db.query(Session)
     if project:
         q = q.filter(Session.project == project)
+    if status:
+        if status == "active":
+            # NULL = legacy sessions before status column existed
+            q = q.filter((Session.status == "active") | Session.status.is_(None))
+        else:
+            q = q.filter(Session.status == status)
     total = q.count()
     sessions = q.order_by(Session.updated_at.desc()).offset(skip).limit(limit).all()
     return SessionList(
@@ -49,6 +59,47 @@ def get_session(session_id: UUID, db: SASession = Depends(get_db)):
     session = db.get(Session, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+    return _session_with_count(session, db)
+
+
+@router.post("/{session_id}/archive", response_model=SessionOut)
+def archive_session(session_id: UUID, db: SASession = Depends(get_db)):
+    """Archive a session: mark as archived + consolidate messages into a context entry."""
+    session = db.get(Session, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.status == "archived":
+        raise HTTPException(status_code=400, detail="Session already archived")
+
+    session.status = "archived"
+    session.archived_at = datetime.now(timezone.utc)
+
+    # Collect all messages into a consolidated context entry
+    messages = (
+        db.query(Message)
+        .filter(Message.session_id == session_id)
+        .order_by(Message.created_at.asc())
+        .all()
+    )
+    if messages:
+        summary = f"Archived session: {session.title or 'Untitled'}"
+        content = "\n".join(f"[{m.role}] {m.content}" for m in messages)
+
+        ctx = Context(
+            session_id=session_id,
+            summary=summary,
+            content=content,
+            keywords=session.project or "",
+            token_count=sum(m.tokens_used or 0 for m in messages),
+        )
+        try:
+            ctx.embedding = EmbeddingService.embed(content)
+        except Exception as e:
+            print(f"⚠ Archive embedding failed: {e}")
+        db.add(ctx)
+
+    db.commit()
+    db.refresh(session)
     return _session_with_count(session, db)
 
 
@@ -76,5 +127,7 @@ def _session_with_count(session: Session, db: SASession) -> SessionOut:
         created_at=session.created_at,
         updated_at=session.updated_at,
         metadata_=session.metadata_,
+        status=session.status or "active",
+        archived_at=session.archived_at,
         message_count=count or 0,
     )

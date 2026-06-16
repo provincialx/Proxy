@@ -36,6 +36,16 @@ class Session(Base):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+    status = Column(
+        String(16),
+        nullable=False,
+        default="active",
+        server_default="active",
+        comment="active | archived",
+    )
+    archived_at = Column(
+        DateTime(timezone=True), nullable=True, comment="When session was archived"
+    )
     metadata_ = Column("metadata", Text, nullable=True, comment="JSON-encoded metadata")
 
     messages = relationship(
