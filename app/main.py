@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from app.config import settings
 from app.database import Base, engine
-from app.routes import context, messages, sessions
+from app.routes import admin, context, messages, sessions
 from app.services.archiver import start_archiver
 
 
@@ -56,6 +56,14 @@ async def lifespan(app: FastAPI):
     # Start background auto-archiver
     start_archiver()
 
+    # Auto-open browser
+    try:
+        import webbrowser
+
+        webbrowser.open("http://127.0.0.1:8100/")
+    except Exception:
+        pass
+
     yield
 
 
@@ -79,6 +87,7 @@ app.add_middleware(
 app.include_router(sessions.router)
 app.include_router(messages.router)
 app.include_router(context.router)
+app.include_router(admin.router)
 
 
 @app.get("/")

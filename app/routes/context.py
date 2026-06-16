@@ -13,6 +13,7 @@ from app.models.context import Context
 from app.models.session import Session
 from app.schemas import ContextCreate, ContextOut, ContextSearchResult
 from app.services import EmbeddingService
+from app.utils import strip_thinking
 
 router = APIRouter(prefix="/context", tags=["context"])
 
@@ -111,16 +112,18 @@ def create_context(body: ContextCreate, db: SASession = Depends(get_db)):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    clean_content = strip_thinking(body.content)
+
     # Generate embedding from content + keywords for better semantic matching
-    embed_text = body.content
+    embed_text = clean_content
     if body.keywords:
-        embed_text = f"{body.content} Keywords: {body.keywords}"
+        embed_text = f"{clean_content} Keywords: {body.keywords}"
     embedding = EmbeddingService.embed(embed_text)
 
     ctx = Context(
         session_id=body.session_id,
         summary=body.summary,
-        content=body.content,
+        content=clean_content,
         keywords=body.keywords,
         embedding=embedding,
         token_count=body.token_count,

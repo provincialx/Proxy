@@ -9,6 +9,7 @@ from app.models.context import Context
 from app.models.message import Message
 from app.models.session import Session
 from app.services import EmbeddingService
+from app.utils import strip_thinking
 
 # Сессии без обновлений дольше этого периода — авто-архивация
 AUTO_ARCHIVE_DAYS = 7
@@ -31,15 +32,16 @@ def _archive_session(db, session: Session) -> None:
         summary = f"Archived session: {session.title or 'Untitled'}"
 
         for m in messages:
+            clean_content = strip_thinking(m.content)
             ctx = Context(
                 session_id=session.id,
                 summary=summary,
-                content=m.content,
+                content=clean_content,
                 keywords=session.project or "",
                 token_count=m.tokens_used,
             )
             try:
-                ctx.embedding = EmbeddingService.embed(m.content)
+                ctx.embedding = EmbeddingService.embed(clean_content)
             except Exception as e:
                 print(f"⚠ Auto-archive embedding failed for msg {m.id}: {e}")
             db.add(ctx)

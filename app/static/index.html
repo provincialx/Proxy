@@ -238,56 +238,9 @@
         <div class="container">
             <!-- Tabs -->
             <div class="tabs">
-                <div class="tab active" onclick="switchTab('chat')">💬 Чат</div>
                 <div class="tab" onclick="switchTab('search')">🔍 Поиск</div>
-                <div class="tab" onclick="switchTab('sessions')">📁 Сессии</div>
-            </div>
-
-            <!-- CHAT TAB -->
-            <div id="tab-chat" class="tab-content active">
-                <div class="card">
-                    <h2>Новое сообщение</h2>
-                    <div class="row">
-                        <input
-                            id="chat-project"
-                            placeholder="Проект (например: CacheProxy)"
-                            value="CacheProxy"
-                        />
-                        <input
-                            id="chat-title"
-                            placeholder="Название сессии"
-                            value="Чат с агентом"
-                        />
-                    </div>
-                    <div style="margin-bottom: 8px">
-                        <label>Кто говорит</label>
-                        <select id="chat-role">
-                            <option value="user">👤 Я (user)</option>
-                            <option value="assistant">
-                                🤖 Ассистент (assistant)
-                            </option>
-                            <option value="system">⚙️ Система (system)</option>
-                        </select>
-                    </div>
-                    <textarea
-                        id="chat-content"
-                        placeholder="Напишите сообщение..."
-                        style="margin-bottom: 12px"
-                    ></textarea>
-                    <div class="row">
-                        <button id="btn-send" onclick="sendMessage()">
-                            📨 Отправить
-                        </button>
-                        <button class="secondary" onclick="saveContext()">
-                            💾 Сохранить как контекст
-                        </button>
-                    </div>
-                    <div id="chat-log" class="log"></div>
-                </div>
-
-                <div class="card" id="chat-history" style="display: none">
-                    <h2>📜 Последние сообщения</h2>
-                    <div id="chat-messages"></div>
+                <div class="tab active" onclick="switchTab('sessions')">
+                    📁 Сессии
                 </div>
             </div>
 
@@ -320,7 +273,7 @@
             </div>
 
             <!-- SESSIONS TAB -->
-            <div id="tab-sessions" class="tab-content">
+            <div id="tab-sessions" class="tab-content active">
                 <div class="card">
                     <h2>📁 Сессии</h2>
                     <div class="row">
@@ -345,6 +298,61 @@
                     <div id="sessions-list">
                         <div class="empty">Загрузите список сессий</div>
                     </div>
+                </div>
+
+                <!-- ADMIN PANEL -->
+                <div class="card">
+                    <h2>🔧 Управление</h2>
+
+                    <div style="margin-bottom: 12px">
+                        <label>Проекты для загрузки</label>
+                        <div
+                            id="project-list"
+                            style="
+                                display: flex;
+                                flex-wrap: wrap;
+                                gap: 6px;
+                                margin-top: 4px;
+                            "
+                        >
+                            <span class="empty" style="padding: 4px 8px"
+                                >Загрузка...</span
+                            >
+                        </div>
+                        <div style="margin-top: 4px; display: flex; gap: 8px">
+                            <button
+                                class="secondary"
+                                onclick="selectAllProjects(true)"
+                                style="font-size: 12px; padding: 2px 8px"
+                            >
+                                Выбрать все
+                            </button>
+                            <button
+                                class="secondary"
+                                onclick="selectAllProjects(false)"
+                                style="font-size: 12px; padding: 2px 8px"
+                            >
+                                Снять все
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="row" style="flex-wrap: wrap; gap: 8px">
+                        <button id="btn-sync" onclick="runSync()">
+                            🔄 Sync выбранные
+                        </button>
+                        <button id="btn-daemon" onclick="toggleDaemon()">
+                            ▶️ Демон
+                        </button>
+                        <button class="danger" onclick="resetDb()">
+                            🗑️ DB Reset
+                        </button>
+                    </div>
+                    <div
+                        id="admin-log"
+                        class="log"
+                        style="margin-top: 8px"
+                    ></div>
                 </div>
             </div>
         </div>
@@ -379,123 +387,174 @@
                 }, 4000);
             }
 
-            // ─── SEND MESSAGE ────────────────────────────────────
+            // ─── ADMIN: PROJECTS + SYNC + DAEMON + DB RESET ─────
 
-            let currentSessionId = null;
+            let daemonRunning = false;
+            let availableProjects = [];
 
-            async function sendMessage() {
-                const project = $("chat-project").value.trim() || "default";
-                const title = $("chat-title").value.trim() || "Чат";
-                const role = $("chat-role").value;
-                const content = $("chat-content").value.trim();
-                if (!content) {
-                    log($("chat-log"), "Напишите сообщение", "error");
-                    return;
-                }
-
-                const btn = $("btn-send");
-                btn.disabled = true;
-                btn.textContent = "⏳ Отправка...";
-
+            async function loadProjects() {
                 try {
-                    // Find or create session
-                    let sid = currentSessionId;
-                    if (!sid) {
-                        const r = await fetch(
-                            `${BASE}/sessions?project=${encodeURIComponent(project)}&limit=1`,
-                        );
-                        const data = await r.json();
-                        if (data.total > 0) {
-                            sid = data.sessions[0].id;
-                        } else {
-                            const r2 = await fetch(`${BASE}/sessions`, {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ title, project }),
-                            });
-                            const s = await r2.json();
-                            sid = s.id;
-                        }
-                        currentSessionId = sid;
+                    const r = await fetch(`${BASE}/admin/projects`);
+                    const data = await r.json();
+                    availableProjects = data.projects;
+                    const container = $("project-list");
+                    if (data.projects.length === 0) {
+                        container.innerHTML =
+                            '<span class="empty" style="padding: 4px 8px">Нет архивированных тредов</span>';
+                        return;
                     }
-
-                    // Send message
-                    const r = await fetch(`${BASE}/messages`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            session_id: sid,
-                            role,
-                            content,
-                        }),
-                    });
-                    if (!r.ok) throw new Error(await r.text());
-
-                    $("chat-content").value = "";
-                    log($("chat-log"), "✅ Сообщение отправлено", "success");
-
-                    // Show last messages + refresh sessions list in background
-                    loadLastMessages(sid);
-                    // Refresh sessions list so count updates when user switches tab
-                    if (typeof loadSessions === "function")
-                        setTimeout(loadSessions, 300);
+                    container.innerHTML = data.projects
+                        .map(
+                            (p) =>
+                                `<label style="display:flex;align-items:center;gap:4px;cursor:pointer;background:#21262d;padding:4px 10px;border-radius:6px;font-size:13px">
+                        <input type="checkbox" checked value="${escapeHtml(p)}" onchange="onProjectChange()">
+                        ${escapeHtml(p)}
+                      </label>`,
+                        )
+                        .join("");
                 } catch (e) {
-                    log($("chat-log"), `❌ Ошибка: ${e.message}`, "error");
-                } finally {
-                    btn.disabled = false;
-                    btn.textContent = "📨 Отправить";
+                    $("project-list").innerHTML =
+                        '<span class="empty" style="padding:4px 8px;color:#f85149">Ошибка загрузки проектов</span>';
                 }
             }
 
-            async function loadLastMessages(sid) {
+            function onProjectChange() {
+                // just re-read checkboxes on sync
+            }
+
+            function getSelectedProjects() {
+                const checks = document.querySelectorAll(
+                    "#project-list input[type=checkbox]",
+                );
+                const selected = [];
+                checks.forEach((c) => {
+                    if (c.checked) selected.push(c.value);
+                });
+                return selected;
+            }
+
+            function selectAllProjects(select) {
+                document
+                    .querySelectorAll("#project-list input[type=checkbox]")
+                    .forEach((c) => (c.checked = select));
+            }
+
+            async function checkDaemonStatus() {
                 try {
-                    const r = await fetch(`${BASE}/messages/${sid}?limit=5`);
-                    const msgs = await r.json();
-                    const container = $("chat-messages");
-                    container.innerHTML = "";
-                    $("chat-history").style.display = "block";
-
-                    // Show session title
-                    const sr = await fetch(`${BASE}/sessions/${sid}`);
-                    const session = await sr.json();
-                    container.innerHTML = `<div style="margin-bottom:8px;color:#8b949e;font-size:13px">📁 ${session.project || ""} / ${session.title || ""}</div>`;
-
-                    msgs.slice(-5).forEach((m) => {
-                        const icon =
-                            m.role === "user"
-                                ? "👤"
-                                : m.role === "assistant"
-                                  ? "🤖"
-                                  : "⚙️";
-                        container.innerHTML += `
-        <div class="result-item">
-          <div class="meta">${icon} ${m.role} · ${new Date(m.created_at).toLocaleString("ru")}</div>
-          <div class="content">${escapeHtml(m.content)}</div>
-        </div>`;
-                    });
+                    const r = await fetch(`${BASE}/admin/daemon/status`);
+                    const data = await r.json();
+                    daemonRunning = data.running;
+                    const btn = $("btn-daemon");
+                    btn.textContent = daemonRunning
+                        ? "⏹️ Остановить демона"
+                        : "▶️ Запустить демона";
+                    btn.className = daemonRunning ? "danger" : "";
                 } catch (e) {}
             }
 
-            async function saveContext() {
-                const content = $("chat-content").value.trim();
-                if (!content || !currentSessionId) {
-                    log($("chat-log"), "Сначала отправьте сообщение", "error");
+            async function runSync() {
+                const btn = $("btn-sync");
+                const selected = getSelectedProjects();
+                if (selected.length === 0) {
+                    log(
+                        $("admin-log"),
+                        "⚠️ Выбери хотя бы один проект",
+                        "error",
+                    );
                     return;
                 }
+                btn.disabled = true;
+                btn.textContent = "⏳ Синхронизация...";
                 try {
-                    const r = await fetch(`${BASE}/context`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            session_id: currentSessionId,
-                            content,
-                        }),
-                    });
-                    if (r.ok) {
-                        log($("chat-log"), "✅ Контекст сохранён", "success");
+                    let url = `${BASE}/admin/sync`;
+                    if (selected.length < availableProjects.length) {
+                        url += `?projects=${encodeURIComponent(selected.join(","))}`;
                     }
+                    const r = await fetch(url, { method: "POST" });
+                    const data = await r.json();
+                    log(
+                        $("admin-log"),
+                        `✅ Синхронизировано ${data.synced} из ${data.total} тредов`,
+                        "success",
+                    );
+                    if (data.errors.length) {
+                        log(
+                            $("admin-log"),
+                            `⚠️ ${data.errors.length} ошибок`,
+                            "error",
+                        );
+                    }
+                    loadSessions();
                 } catch (e) {
-                    log($("chat-log"), `❌ Ошибка: ${e.message}`, "error");
+                    log($("admin-log"), `❌ Ошибка: ${e.message}`, "error");
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = "🔄 Sync выбранные";
+                }
+            }
+
+            async function toggleDaemon() {
+                try {
+                    if (daemonRunning) {
+                        await fetch(`${BASE}/admin/daemon/stop`, {
+                            method: "POST",
+                        });
+                        log($("admin-log"), "⏹️ Демон остановлен", "success");
+                    } else {
+                        await fetch(`${BASE}/admin/daemon/start?interval=60`, {
+                            method: "POST",
+                        });
+                        log(
+                            $("admin-log"),
+                            "▶️ Демон запущен (интервал 60с)",
+                            "success",
+                        );
+                    }
+                    checkDaemonStatus();
+                } catch (e) {
+                    log($("admin-log"), `❌ Ошибка: ${e.message}`, "error");
+                }
+            }
+
+            async function resetDb() {
+                // Защита от дурака — три подтверждения
+                if (
+                    !confirm(
+                        "🗑️ ВЫ УВЕРЕНЫ? Это удалит ВСЕ сессии, сообщения и контексты из базы данных.\n\nМодель эмбеддингов (.model_cache) тоже будет удалена.",
+                    )
+                )
+                    return;
+                if (
+                    !confirm(
+                        "⚠️ ЭТО НЕОБРАТИМО.\n\nВсе данные будут безвозвратно удалены. Продолжить?",
+                    )
+                )
+                    return;
+
+                const btn = document.querySelector("button.danger");
+                btn.disabled = true;
+                btn.textContent = "⏳ Очистка...";
+                try {
+                    const r = await fetch(`${BASE}/admin/db-reset`, {
+                        method: "POST",
+                    });
+                    if (!r.ok) throw new Error(await r.text());
+                    const data = await r.json();
+                    log(
+                        $("admin-log"),
+                        `✅ База очищена: ${data.sessions_deleted} сессий, ${data.messages_deleted} сообщений, ${data.contexts_deleted} контекстов` +
+                            (data.cache_deleted ? " + кеш модели" : "") +
+                            (data.sent_cache_cleared
+                                ? " + сброшен sent-кеш"
+                                : ""),
+                        "success",
+                    );
+                    loadSessions();
+                } catch (e) {
+                    log($("admin-log"), `❌ Ошибка: ${e.message}`, "error");
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = "🗑️ DB Reset";
                 }
             }
 
@@ -705,7 +764,14 @@
                 return div.innerHTML;
             }
 
-            // Init: load project names for search
+            // Init: load sessions + projects + daemon status
+            setTimeout(() => {
+                loadSessions();
+                loadProjects();
+                checkDaemonStatus();
+            }, 500);
+
+            // Fetch project names for search
             fetch(`${BASE}/sessions`)
                 .then((r) => r.json())
                 .then((data) => {
@@ -715,9 +781,6 @@
                     });
                 })
                 .catch(() => {});
-
-            // Load sessions on page load
-            setTimeout(loadSessions, 500);
         </script>
     </body>
 </html>

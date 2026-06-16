@@ -35,6 +35,15 @@ GET  /messages/{session_id}                  — сообщения сессии
 POST /context                                — сохранить контекст вручную (авто-эмбеддинг)
 GET  /context/search?query=...&project=...   — семантический поиск (с фильтром по проекту)
 DELETE /context/{id}                          — удалить контекст
+
+### Admin
+```
+GET  /admin/projects                         — список проектов из архивированных тредов Zed
+POST /admin/sync?projects=...                — запустить синхронизацию (с фильтром по проектам)
+POST /admin/daemon/start?interval=60         — запустить фоновый демон синхронизации
+POST /admin/daemon/stop                      — остановить демон
+GET  /admin/daemon/status                    — статус демона
+POST /admin/db-reset                         — очистить БД, кеш модели и sent-маркеры
 ```
 
 ---
@@ -149,6 +158,33 @@ python sync_agent.py sync
 python sync_agent.py daemon
 ```
 
+### Программный вызов
+
+```python
+from sync_agent import run_sync, get_available_projects
+
+# Список проектов
+projects = get_available_projects()
+
+# Синхронизация всех тредов
+result = run_sync()
+
+# Синхронизация только выбранных проектов
+result = run_sync(projects=["CacheProxy", "iRacing-Analyzer"])
+# result = {synced: int, total: int, errors: list}
+```
+
+### Фильтрация контента
+
+При парсинге тредов автоматически отфильтровываются:
+- `<thinking>...</thinking>` — размышления модели
+- `{"Thinking": {...}}` — JSON-structured thinking
+- `[Tool: name] {...}` — вызовы инструментов
+- `{"Mention": {...}}` — упоминания файлов
+- `{"Image": {...}}` — блоки изображений
+
+Фильтрация применяется как в sync_agent, так и на уровне API (`app/utils.py`).
+
 ---
 
 ## Установка и запуск
@@ -210,13 +246,12 @@ alembic downgrade -1
 
 ## Веб-интерфейс
 
-После запуска открой **http://127.0.0.1:8100** — три вкладки:
+После запуска браузер открывается автоматически. Две вкладки:
 
 | Вкладка | Что делает |
 |---------|-----------|
-| 💬 **Чат** | Написать сообщение → автомат сохраняется в messages + contexts (с эмбеддингом) |
 | 🔍 **Поиск** | Семантический поиск по всем контекстам, фильтр по проекту, удаление лишнего ✕ |
-| 📁 **Сессии** | Список диалогов с фильтром (проект + статус), кнопка архивации и удаления |
+| 📁 **Сессии** (дефолтная) | Список диалогов с фильтром (проект + статус), архивация, удаление. Панель **Управление**: синхронизация с Zed, демон, DB Reset |
 
 ### API документация
 
@@ -288,11 +323,13 @@ CacheProxy/
 │   │   ├── __init__.py
 │   │   ├── sessions.py      # CRUD + archive endpoint
 │   │   ├── messages.py      # CRUD сообщений
-│   │   └── context.py       # CRUD + гибридный поиск (keyword + semantic)
+│   │   ├── context.py       # CRUD + гибридный поиск (keyword + semantic)
+│   │   └── admin.py         # Управление: sync, daemon, db-reset
 │   └── services/
 │       ├── __init__.py      # EmbeddingService
 │       └── archiver.py      # Фоновый авто-архиватор
 ├── sync_agent.py            # Синхронизация архивных тредов из Zed
+├── app/utils.py             # Фильтрация контента (thinking, mentions, tool calls)
 ├── alembic/                 # Миграции
 ├── alembic.ini
 ├── .env                     # Конфигурация
@@ -316,6 +353,9 @@ CacheProxy/
 - [x] Гибридный поиск (keyword ILIKE + semantic)
 - [x] Архивация сессий (ручная + авто-архиватор)
 - [x] Sync Agent — выгрузка архивных тредов из Zed
+- [x] Фильтрация мусора (thinking, mentions, images, tool calls)
+- [x] Admin API — sync, daemon, db-reset, выбор проектов
+- [x] Авто-открытие браузера при старте
 - [ ] MCP-сервер для интеграции с AI ассистентом Zed
 - [ ] Авто-суммаризация контекста через LLM
 - [ ] pgvector вместо brute-force
@@ -325,7 +365,19 @@ CacheProxy/
 
 ## Changelog
 
-### 2026-06-16
+### 2026-06-17
+
+#### Добавлено
+- **Admin API** — эндпоинты `/admin/sync`, `/admin/daemon/*`, `/admin/db-reset`, `/admin/projects`
+- **UI: панель управления** — выбор проектов для синхронизации, запуск/остановка демона, DB Reset с защитой от дурака
+- **UI: вкладка «Сессии» по дефолту**, вкладка «Чат» удалена
+- **Фильтрация контента** — `strip_thinking()` в `app/utils.py`:
+  - XML `<thinking>...</thinking>`
+  - JSON `{"Thinking": {...}}`, `{"Mention": {...}}`, `{"Image": {...}}`
+  - Tool calls `[Tool: name] {...}`
+- **`sync_agent.py`**: программный API (`run_sync()`, `get_available_projects()`), фильтр по проектам, пропуск ToolUse/Thinking/Mention/Image при парсинге
+- **`/admin/db-reset`** — очищает БД + model cache + sent-маркеры
+- **Авто-открытие браузера** при старте `http://127.0.0.1:8100`
 
 #### Добавлено
 - **Sync Agent** (`sync_agent.py`) — чтение архивированных тредов из SQLite БД Zed

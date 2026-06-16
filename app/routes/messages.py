@@ -12,6 +12,7 @@ from app.models.message import Message
 from app.models.session import Session
 from app.schemas import MessageCreate, MessageOut
 from app.services import EmbeddingService
+from app.utils import strip_thinking
 
 router = APIRouter(prefix="/messages", tags=["messages"])
 
@@ -23,25 +24,26 @@ def create_message(body: MessageCreate, db: SASession = Depends(get_db)):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    clean_content = strip_thinking(body.content)
+
     message = Message(
         session_id=body.session_id,
         role=body.role,
-        content=body.content,
+        content=clean_content,
         tokens_used=body.tokens_used,
     )
     db.add(message)
 
     # Auto-save as context for semantic search
-    # content хранит сырой текст (без [user]/[assistant] префикса) — чище для эмбеддинга
     ctx = Context(
         session_id=body.session_id,
-        content=body.content,
+        content=clean_content,
         keywords=session.project or "",
         token_count=body.tokens_used,
     )
     # Generate embedding — non-critical, message saves even if embedding fails
     try:
-        ctx.embedding = EmbeddingService.embed(body.content)
+        ctx.embedding = EmbeddingService.embed(clean_content)
     except Exception as embed_err:
         print(f"⚠ Embedding failed (message saved without vector): {embed_err}")
     db.add(ctx)
