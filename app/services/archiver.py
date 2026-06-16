@@ -29,20 +29,20 @@ def _archive_session(db, session: Session) -> None:
     )
     if messages:
         summary = f"Archived session: {session.title or 'Untitled'}"
-        content = "\n".join(f"[{m.role}] {m.content}" for m in messages)
 
-        ctx = Context(
-            session_id=session.id,
-            summary=summary,
-            content=content,
-            keywords=session.project or "",
-            token_count=sum(m.tokens_used or 0 for m in messages),
-        )
-        try:
-            ctx.embedding = EmbeddingService.embed(content)
-        except Exception as e:
-            print(f"⚠ Auto-archive embedding failed: {e}")
-        db.add(ctx)
+        for m in messages:
+            ctx = Context(
+                session_id=session.id,
+                summary=summary,
+                content=m.content,
+                keywords=session.project or "",
+                token_count=m.tokens_used,
+            )
+            try:
+                ctx.embedding = EmbeddingService.embed(m.content)
+            except Exception as e:
+                print(f"⚠ Auto-archive embedding failed for msg {m.id}: {e}")
+            db.add(ctx)
 
     db.commit()
     print(f"✓ Auto-archived session {session.id} ({session.title})")

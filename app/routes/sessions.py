@@ -74,7 +74,7 @@ def archive_session(session_id: UUID, db: SASession = Depends(get_db)):
     session.status = "archived"
     session.archived_at = datetime.now(timezone.utc)
 
-    # Collect all messages into a consolidated context entry
+    # Create individual context entries per message for granular search
     messages = (
         db.query(Message)
         .filter(Message.session_id == session_id)
@@ -83,20 +83,20 @@ def archive_session(session_id: UUID, db: SASession = Depends(get_db)):
     )
     if messages:
         summary = f"Archived session: {session.title or 'Untitled'}"
-        content = "\n".join(f"[{m.role}] {m.content}" for m in messages)
 
-        ctx = Context(
-            session_id=session_id,
-            summary=summary,
-            content=content,
-            keywords=session.project or "",
-            token_count=sum(m.tokens_used or 0 for m in messages),
-        )
-        try:
-            ctx.embedding = EmbeddingService.embed(content)
-        except Exception as e:
-            print(f"⚠ Archive embedding failed: {e}")
-        db.add(ctx)
+        for m in messages:
+            ctx = Context(
+                session_id=session_id,
+                summary=summary,
+                content=m.content,
+                keywords=session.project or "",
+                token_count=m.tokens_used,
+            )
+            try:
+                ctx.embedding = EmbeddingService.embed(m.content)
+            except Exception as e:
+                print(f"⚠ Archive embedding failed for msg {m.id}: {e}")
+            db.add(ctx)
 
     db.commit()
     db.refresh(session)

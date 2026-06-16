@@ -501,6 +501,11 @@
 
             // ─── SEARCH ───────────────────────────────────────────
 
+            function truncate(str, max = 300) {
+                if (!str || str.length <= max) return str;
+                return str.slice(0, max) + "...";
+            }
+
             async function doSearch() {
                 const query = $("search-query").value.trim();
                 const project = $("search-project").value.trim();
@@ -535,7 +540,7 @@
             </div>
             <button class="btn-del" onclick="deleteContext('${res.id}')" title="Удалить">✕</button>
           </div>
-          <div class="content">${escapeHtml(res.content)}</div>
+          <div class="content">${escapeHtml(truncate(res.content, 500))}</div>
           ${
               res.keywords
                   ? `<div style="margin-top:6px">${res.keywords
