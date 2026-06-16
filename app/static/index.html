@@ -347,6 +347,7 @@
                         <button class="danger" onclick="resetDb()">
                             🗑️ DB Reset
                         </button>
+                        <button onclick="resummarizeAll()">📝 Ресаммари</button>
                     </div>
                     <div
                         id="admin-log"
@@ -513,6 +514,45 @@
                     checkDaemonStatus();
                 } catch (e) {
                     log($("admin-log"), `❌ Ошибка: ${e.message}`, "error");
+                }
+            }
+
+            async function resummarizeAll() {
+                const btn = document.querySelector(
+                    'button[onclick="resummarizeAll()"]',
+                );
+                const logEl = $("admin-log");
+                const orig = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = "⏳ Ресаммари...";
+                log(logEl, "Суммаризация архивных сессий...", "info");
+
+                try {
+                    const r = await fetch(`${BASE}/admin/resummarize`, {
+                        method: "POST",
+                    });
+                    const data = await r.json();
+                    if (data.summarized > 0) {
+                        log(
+                            logEl,
+                            `✅ ${data.summarized}/${data.processed} сессий ресаммаризировано` +
+                                (data.errors.length
+                                    ? ` (${data.errors.length} ошибок)`
+                                    : ""),
+                            "",
+                        );
+                    } else {
+                        log(
+                            logEl,
+                            `⚠️ Обработано ${data.processed}, но ни одна не ресаммаризирована (нет API ключа?)`,
+                            "error",
+                        );
+                    }
+                } catch (e) {
+                    log(logEl, `❌ Ошибка: ${e.message}`, "error");
+                } finally {
+                    btn.disabled = false;
+                    btn.innerHTML = orig;
                 }
             }
 
