@@ -27,7 +27,7 @@ from app.utils import strip_thinking
 
 # ── Конфигурация ────────────────────────────────────────────
 
-DEFAULT_CACHEPROXY_URL = "http://127.0.0.1:8100"
+DEFAULT_CACHEPROXY_URL = "http://192.168.101.211:8100"
 DEFAULT_POLL_INTERVAL = 60
 SENT_MARKERS_FILE = Path.home() / ".cacheproxy_sent_markers.json"
 
@@ -104,12 +104,17 @@ def _discover_schema(db_path: Path) -> None:
 
 
 def _decompress_thread_data(data: bytes) -> dict[str, Any] | None:
-    """Decompress zstd data from threads.db and parse JSON."""
+    """Decompress zstd data from threads.db and parse JSON.
+
+    Uses a streaming reader to handle multi-frame zstd content
+    (some threads produce ~88MB decompressed from 6.6MB compressed).
+    """
     try:
         import zstandard
 
         dctx = zstandard.ZstdDecompressor()
-        decompressed = dctx.decompress(data, max_output_size=50 * 1024 * 1024)
+        reader = dctx.stream_reader(data)
+        decompressed = reader.read()
         return json.loads(decompressed.decode("utf-8"))
     except Exception as e:
         print(f"    ⚠ Failed to decompress/parse thread data: {e}")
@@ -188,7 +193,9 @@ def get_available_projects() -> list[str]:
     return sorted(projects)
 
 
-def _get_archived_threads(projects: list[str] | None = None) -> list[dict[str, Any]]:
+def _get_archived_threads(
+    projects: list[str] | None = None, all_threads: bool = False
+) -> list[dict[str, Any]]:
     """
     Read archived threads from Zed's SQLite databases.
 
@@ -211,7 +218,7 @@ def _get_archived_threads(projects: list[str] | None = None) -> list[dict[str, A
     s_cur.execute(
         "SELECT session_id, title, folder_paths, folder_paths_order, archived, "
         "created_at, updated_at, interacted_at "
-        "FROM sidebar_threads WHERE archived = 1"
+        "FROM sidebar_threads" + ("" if all_threads else " WHERE archived = 1")
     )
     sidebar_rows = [dict(r) for r in s_cur.fetchall()]
     s_conn.close()
@@ -382,7 +389,7 @@ def run_sync(
         return result
 
     sent = _load_sent_cache()
-    threads = _get_archived_threads(projects)
+    threads = _get_archived_threads(projects, all_threads=True)
     result["total"] = len(threads)
 
     for t in threads:
