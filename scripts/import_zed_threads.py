@@ -19,9 +19,9 @@ from pathlib import Path
 import httpx
 import zstandard as zs
 
-CACHEPROXY_BASE = "http://127.0.0.1:8100"
-ZED_THREADS_DB = "C:/Users/Mandr/AppData/Local/Zed/threads/threads.db"
-ZED_MAIN_DB = "C:/Users/Mandr/AppData/Local/Zed/db/0-stable/db.sqlite"
+CACHEPROXY_BASE = "http://192.168.101.211:8100"
+ZED_THREADS_DB = str(Path.home() / ".local/share/zed/threads/threads.db")
+ZED_MAIN_DB = str(Path.home() / ".local/share/zed/db/0-stable/db.sqlite")
 
 # Short responses that add no topical value — skip standalone contexts
 GENERIC_RESPONSES = {

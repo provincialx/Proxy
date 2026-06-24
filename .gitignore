@@ -1,6 +1,11 @@
 # Model cache (downloaded on first start, ~252MB)
 .model_cache/
 .server_pid
+.server.log
+
+# Temp/helper scripts
+nul
+scripts/ssh_*.py
 
 # Python
 __pycache__/

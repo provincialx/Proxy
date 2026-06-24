@@ -22,6 +22,39 @@
 
 ## Архитектура
 
+### Компоненты
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│  Сервер (192.168.101.211)                                     │
+│  ┌──────────────┐    ┌────────────────────┐                   │
+│  │  PostgreSQL   │    │  CacheProxy API    │                   │
+│  │  (порт 5432)  │◄───│  uvicorn :8100     │                   │
+│  │  БД: proxy    │    │  FastAPI + SQLAlch.│                   │
+│  └──────────────┘    └────────┬───────────┘                   │
+│                               │                               │
+│                    ┌──────────▼───────────┐                   │
+│                    │  Web UI (index.html) │                   │
+│                    └──────────────────────┘                   │
+└───────────────────────────────────────────────────────────────┘
+         ▲                          ▲
+         │ HTTP API                  │ Браузер
+         │ (sync_agent, MCP)         │
+┌────────┴──────────────────────────┴───────────────────────────┐
+│  Клиент (ПК пользователя)                                     │
+│  ┌───────────────────┐    ┌──────────────────┐                │
+│  │  Zed (SQLite БД)  │    │  Веб-браузер     │                │
+│  │  sync_agent.py ───┼────│  http://...:8100 │                │
+│  └───────────────────┘    └──────────────────┘                │
+└───────────────────────────────────────────────────────────────┘
+```
+
+Сервер поднимается в локальной сети, клиент — ПК с Zed.
+Sync Agent всегда запускается **на клиенте** (там где Zed), потому что читает локальные SQLite базы.
+Веб-интерфейс открывается в браузере через адрес сервера.
+
+### API
+
 ```
 POST /sessions                              — создать сессию чата
 GET  /sessions?project=...&status=...        — список сессий (фильтр по проекту и статусу)
@@ -38,12 +71,15 @@ DELETE /context/{id}                          — удалить контекс�
 
 ### Admin
 ```
-GET  /admin/projects                         — список проектов из архивированных тредов Zed
+GET  /admin/projects                         — список проектов из тредов Zed
 POST /admin/sync?projects=...                — запустить синхронизацию (с фильтром по проектам)
 POST /admin/daemon/start?interval=60         — запустить фоновый демон синхронизации
 POST /admin/daemon/stop                      — остановить демон
 GET  /admin/daemon/status                    — статус демона
 POST /admin/db-reset                         — очистить БД, кеш модели и sent-маркеры
+GET  /admin/zed-threads                      — сырые треды из Zed SQLite (вкладка Junk)
+GET  /admin/zed-threads/{id}/messages        — сырые сообщения треда (со всеми блоками)
+POST /admin/zed-threads/{id}/sync            — синхронизация одного треда из Junk в CacheProxy
 ```
 
 ---
@@ -157,7 +193,7 @@ POST /admin/db-reset                         — очистить БД, кеш �
 | threads | `%LOCALAPPDATA%\Zed\threads\threads.db` | Контент тредов (zstd-сжатый JSON) |
 
 ### Как работает
-1. Находит треды с `archived=1` в sidebar DB
+1. Находит треды в sidebar DB (по умолчанию только `archived=1`, можно все через `all_threads=True`)
 2. Достаёт контент из threads DB (распаковывает zstd)
 3. Парсит JSON — извлекает каждое сообщение с ролью (user/assistant)
 4. Создаёт сессию в CacheProxy
@@ -166,12 +202,15 @@ POST /admin/db-reset                         — очистить БД, кеш �
 
 ### Использование
 
-```powershell
+```bash
 # Показать схему БД Zed
 python sync_agent.py discover
 
-# Один проход — отправить все архивированные треды
+# Один проход — отправить все треды (текущая реализация — все, не только архивные)
 python sync_agent.py sync
+
+# Указать URL сервера (если не дефолтный)
+python sync_agent.py --url http://192.168.101.211:8100 sync
 
 # Фоновый режим — проверяет новые архивы каждые 60с
 python sync_agent.py daemon
@@ -185,8 +224,8 @@ from sync_agent import run_sync, get_available_projects
 # Список проектов
 projects = get_available_projects()
 
-# Синхронизация всех тредов
-result = run_sync()
+# Синхронизация всех тредов (все, не только архивные)
+result = run_sync(all_threads=True)
 
 # Синхронизация только выбранных проектов
 result = run_sync(projects=["CacheProxy", "iRacing-Analyzer"])
@@ -208,40 +247,102 @@ result = run_sync(projects=["CacheProxy", "iRacing-Analyzer"])
 
 ## Установка и запуск
 
-### Требования
-- Python 3.12+
-- PostgreSQL 17+
-- Зависимости из `requirements.txt`
+### Вариант 1: Всё на одном ПК (локальный запуск)
 
-### Установка
-
-```powershell
+```bash
 # Клонировать
-cd D:\Projects\CacheProxy
+cd ~/Projects/CacheProxy
 
 # Создать виртуальное окружение
-python -m venv .venv
-.venv\Scripts\activate
+python3 -m venv .venv
+source .venv/bin/activate
 
 # Установить зависимости
 pip install -r requirements.txt
 
 # Настроить .env
-# DB_HOST=localhost
-# DB_PORT=5432
-# DB_NAME=Proxy
-# DB_USER=ProxyUser
-# DB_PASSWORD=1
-# APP_PORT=8100
+cat > .env << 'EOF'
+db_host=localhost
+db_port=5432
+db_name=proxy
+db_user=proxyuser
+db_password=1
+app_host=0.0.0.0
+app_port=8100
+debug=false
+llm_enabled=false
+EOF
+
+# Применить миграции
+alembic upgrade head
+
+# Запустить
+PYTHONIOENCODING=utf-8 uvicorn app.main:app --host 0.0.0.0 --port 8100
 ```
 
-### Запуск
+### Вариант 2: Сервер + клиент (рекомендуется)
 
-```powershell
-uvicorn app.main:app --host 127.0.0.1 --port 8100
+На сервере в локальной сети поднимается PostgreSQL + CacheProxy API.
+Клиент (ПК с Zed) синхронизирует треды через sync_agent и открывает веб-интерфейс.
+
+#### На сервере
+
+```bash
+# Установить PostgreSQL
+sudo apt-get install -y postgresql postgresql-contrib
+sudo systemctl start postgresql
+
+# Создать БД и пользователя
+sudo -u postgres psql -c "CREATE USER proxyuser WITH PASSWORD '1';"
+sudo -u postgres psql -c "CREATE DATABASE proxy OWNER proxyuser;"
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE proxy TO proxyuser;"
+
+# Залить проект и настроить
+cd ~/CacheProxy
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# Настроить .env
+cat > .env << 'EOF'
+db_host=localhost
+db_port=5432
+db_name=proxy
+db_user=proxyuser
+db_password=1
+app_host=0.0.0.0
+app_port=8100
+debug=false
+llm_enabled=false
+EOF
+
+# Миграции
+alembic upgrade head
+
+# Запустить (фоново)
+PYTHONIOENCODING=utf-8 nohup uvicorn app.main:app \
+  --host 0.0.0.0 --port 8100 > .server.log 2>&1 &
 ```
 
-При первом запуске:
+#### На клиенте
+
+```bash
+cd ~/Projects/CacheProxy
+
+# Настроить URL сервера в sync_agent.py (строка DEFAULT_CACHEPROXY_URL)
+# DEFAULT_CACHEPROXY_URL = "http://192.168.101.211:8100"
+
+# Синхронизировать треды из Zed на сервер
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python sync_agent.py sync
+
+# Или в фоне (проверка каждые 60с)
+python sync_agent.py daemon
+```
+
+### При первом запуске CacheProxy
 1. Автоматически создаются таблицы (lifespan)
 2. Добавляются колонки `status` и `archived_at` в существующую таблицу sessions
 3. Скачивается и кэшируется модель эмбеддингов (~252MB) — потребуется ~10-15с
@@ -250,15 +351,10 @@ uvicorn app.main:app --host 127.0.0.1 --port 8100
 
 ### Миграции
 
-```powershell
-# Создать новую миграцию
-alembic revision --autogenerate -m "описание"
-
-# Применить миграции
-alembic upgrade head
-
-# Откатить
-alembic downgrade -1
+```bash
+alembic upgrade head      # применить
+# alembic downgrade -1    # откатить
+# alembic revision --autogenerate -m "описание"  # создать новую
 ```
 
 ---
@@ -274,13 +370,13 @@ alembic downgrade -1
 
 ### API документация
 
-- **Swagger UI**: http://127.0.0.1:8100/docs
-- **ReDoc**: http://127.0.0.1:8100/redoc
+- **Swagger UI**: http://192.168.101.211:8100/docs
+- **ReDoc**: http://192.168.101.211:8100/redoc
 
 ### Health check
 
-```powershell
-curl http://127.0.0.1:8100/health
+```bash
+curl http://192.168.101.211:8100/health
 # → {"status":"ok","service":"CacheProxy","version":"0.1.0"}
 ```
 
@@ -289,7 +385,7 @@ curl http://127.0.0.1:8100/health
 ```python
 import httpx
 
-base = "http://127.0.0.1:8100"
+base = "http://192.168.101.211:8100"
 
 # 1. Создать сессию с проектом
 sid = httpx.post(f"{base}/sessions", json={
@@ -435,6 +531,16 @@ CacheProxy/
 ---
 
 ## Changelog
+
+### 2026-06-23
+
+#### Добавлено
+- **Серверный деплой** — проект развёрнут на `192.168.101.211`:
+  - PostgreSQL 18, CacheProxy API, Web UI — всё на одном сервере в локальной сети
+  - Клиент (ПК с Zed) только запускает sync_agent и открывает браузер
+- **README обновлён** — два варианта установки: локальный и сервер+клиент
+- **`sync_agent.py`**: параметр `all_threads=True` — синхронизация всех тредов, не только архивных
+- **SSH-доступ** к серверу через ключ, NOPASSWD sudo
 
 ### 2026-06-18
 
