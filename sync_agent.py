@@ -104,12 +104,17 @@ def _discover_schema(db_path: Path) -> None:
 
 
 def _decompress_thread_data(data: bytes) -> dict[str, Any] | None:
-    """Decompress zstd data from threads.db and parse JSON."""
+    """Decompress zstd data from threads.db and parse JSON.
+
+    Uses a streaming reader to handle multi-frame zstd content
+    (some threads produce ~88MB decompressed from 6.6MB compressed).
+    """
     try:
         import zstandard
 
         dctx = zstandard.ZstdDecompressor()
-        decompressed = dctx.decompress(data, max_output_size=50 * 1024 * 1024)
+        reader = dctx.stream_reader(data)
+        decompressed = reader.read()
         return json.loads(decompressed.decode("utf-8"))
     except Exception as e:
         print(f"    ⚠ Failed to decompress/parse thread data: {e}")
@@ -143,6 +148,9 @@ def _parse_messages(thread_data: dict[str, Any]) -> list[dict[str, str]]:
                     text_parts.append(part["Text"])
                 elif "ToolUse" in part:
                     # Skip tool calls — noise for search
+                    continue
+                elif "ToolResult" in part or "Tool" in part:
+                    # Skip tool results — break API providers (no tool_calls parent)
                     continue
                 elif "Thinking" in part:
                     # Skip model thinking blocks — noise for search

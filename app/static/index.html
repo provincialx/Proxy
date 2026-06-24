@@ -242,6 +242,7 @@
                 <div class="tab active" onclick="switchTab('sessions')">
                     📁 Сессии
                 </div>
+                <div class="tab" onclick="switchTab('junk')">🗑️ Junk</div>
             </div>
 
             <!-- SEARCH TAB -->
@@ -356,6 +357,44 @@
                     ></div>
                 </div>
             </div>
+
+            <!-- JUNK TAB -->
+            <div id="tab-junk" class="tab-content">
+                <div class="card">
+                    <h2>🗑️ Все треды Zed (сырые, без фильтрации)</h2>
+                    <div class="row">
+                        <input
+                            id="junk-filter"
+                            placeholder="Фильтр по проекту"
+                            style="max-width: 200px"
+                        />
+                        <select
+                            id="junk-status"
+                            style="max-width: 160px"
+                            onchange="loadJunk()"
+                        >
+                            <option value="">Все статусы</option>
+                            <option value="archived">📦 Архивные</option>
+                            <option value="active">🟢 Активные</option>
+                            <option value="broken">💥 С ошибками</option>
+                        </select>
+                        <span
+                            id="junk-stats"
+                            style="
+                                font-size: 13px;
+                                color: #8b949e;
+                                align-self: center;
+                            "
+                        ></span>
+                        <button onclick="loadJunk()">🔄 Обновить</button>
+                    </div>
+                </div>
+                <div class="card">
+                    <div id="junk-list">
+                        <div class="empty">Загрузите список тредов</div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <script>
@@ -378,6 +417,7 @@
                 $(`tab-${name}`).classList.add("active");
                 if (name === "sessions") loadSessions();
                 if (name === "search") doSearch();
+                if (name === "junk") loadJunk();
             }
 
             function log(el, msg, type = "") {
@@ -456,7 +496,9 @@
             async function runSync() {
                 const btn = $("btn-sync");
                 const selected = getSelectedProjects();
-                if (selected.length === 0) {
+
+                // If no projects at all — auto-sync everything
+                if (selected.length === 0 && availableProjects.length > 0) {
                     log(
                         $("admin-log"),
                         "⚠️ Выбери хотя бы один проект",
@@ -464,27 +506,82 @@
                     );
                     return;
                 }
+
                 btn.disabled = true;
                 btn.textContent = "⏳ Синхронизация...";
                 try {
                     let url = `${BASE}/admin/sync`;
-                    if (selected.length < availableProjects.length) {
+                    // Pass selected projects only if some are unselected
+                    if (
+                        selected.length > 0 &&
+                        selected.length < availableProjects.length
+                    ) {
                         url += `?projects=${encodeURIComponent(selected.join(","))}`;
                     }
-                    const r = await fetch(url, { method: "POST" });
-                    const data = await r.json();
+                    // POST starts async sync
+                    await fetch(url, { method: "POST" });
+
+                    // Poll sync status until done
+                    let done = false;
+                    let lastResult = null;
+                    let pollAttempts = 0;
+                    while (!done) {
+                        await new Promise((r) => setTimeout(r, 1000));
+                        const sr = await fetch(`${BASE}/admin/sync/status`);
+                        const st = await sr.json();
+                        btn.textContent = st.running
+                            ? `⏳ ${st.progress}`
+                            : `⏳ Завершение...`;
+                        if (!st.running) {
+                            if (st.last_result) {
+                                lastResult = st.last_result;
+                            } else if (st.progress?.startsWith("Done")) {
+                                lastResult = st;
+                            } else if (st.progress?.startsWith("Error")) {
+                                lastResult = {
+                                    synced: 0,
+                                    total: 0,
+                                    errors: [st.progress],
+                                };
+                            } else {
+                                lastResult = {
+                                    synced: 0,
+                                    total: 0,
+                                    errors: [st.progress || "Unknown"],
+                                };
+                            }
+                            done = true;
+                        }
+                        pollAttempts++;
+                        if (pollAttempts > 600) {
+                            // 10 min timeout
+                            done = true;
+                            lastResult = {
+                                synced: 0,
+                                total: 0,
+                                errors: ["Timeout: sync took too long"],
+                            };
+                        }
+                    }
+
+                    const r2 = lastResult || {
+                        synced: 0,
+                        total: 0,
+                        errors: [],
+                    };
                     log(
                         $("admin-log"),
-                        `✅ Синхронизировано ${data.synced} из ${data.total} тредов`,
+                        `✅ Синхронизировано ${r2.synced} из ${r2.total} тредов`,
                         "success",
                     );
-                    if (data.errors.length) {
+                    if (r2.errors?.length) {
                         log(
                             $("admin-log"),
-                            `⚠️ ${data.errors.length} ошибок`,
+                            `⚠️ ${r2.errors.length} ошибок`,
                             "error",
                         );
                     }
+                    loadProjects();
                     loadSessions();
                 } catch (e) {
                     log($("admin-log"), `❌ Ошибка: ${e.message}`, "error");
@@ -802,6 +899,211 @@
                 const div = document.createElement("div");
                 div.textContent = str;
                 return div.innerHTML;
+            }
+
+            // ─── JUNK (raw Zed threads) ──────────────────────────────
+
+            function formatBytes(bytes) {
+                if (!bytes || bytes === 0) return "0 B";
+                const units = ["B", "KB", "MB", "GB"];
+                let i = 0;
+                let size = bytes;
+                while (size >= 1024 && i < units.length - 1) {
+                    size /= 1024;
+                    i++;
+                }
+                return size.toFixed(1) + " " + units[i];
+            }
+
+            function formatDate(str) {
+                if (!str) return "—";
+                return new Date(str).toLocaleDateString("ru");
+            }
+
+            let _junkThreads = [];
+
+            async function loadJunk() {
+                const project = $("junk-filter").value.trim().toLowerCase();
+                const status = $("junk-status").value;
+                const container = $("junk-list");
+
+                try {
+                    const r = await fetch(`${BASE}/admin/zed-threads`);
+                    const data = await r.json();
+                    _junkThreads = data.threads;
+
+                    // Stats bar
+                    let statsHtml = `${data.total} тредов · ${data.total_messages} сообщ. · `;
+                    statsHtml += `${data.archived_count}📦 ${data.active_count}🟢 · `;
+                    statsHtml += `${formatBytes(data.total_compressed_mb * 1024 * 1024)} сжато`;
+                    if (data.total_decompressed_mb) {
+                        statsHtml += ` → ${formatBytes(data.total_decompressed_mb * 1024 * 1024)} распаковано`;
+                    }
+                    $("junk-stats").textContent = statsHtml;
+
+                    // Filter
+                    let filtered = _junkThreads;
+                    if (project) {
+                        filtered = filtered.filter((t) =>
+                            t.project.toLowerCase().includes(project),
+                        );
+                    }
+                    if (status === "archived") {
+                        filtered = filtered.filter((t) => t.archived);
+                    } else if (status === "active") {
+                        filtered = filtered.filter((t) => !t.archived);
+                    } else if (status === "broken") {
+                        filtered = filtered.filter((t) => t.error);
+                    }
+
+                    if (filtered.length === 0) {
+                        container.innerHTML =
+                            '<div class="empty">Нет тредов</div>';
+                        return;
+                    }
+
+                    container.innerHTML = `<div style="font-size:13px;color:#8b949e;margin-bottom:12px">Показано: ${filtered.length} из ${data.total}</div>`;
+
+                    filtered.forEach((t) => {
+                        const statusIcon = t.archived ? "📦" : "🟢";
+                        const errorBadge = t.error
+                            ? `<span class="badge" style="background:#da3633;color:#fff" title="${escapeHtml(t.error)}">💥</span>`
+                            : "";
+                        const sizeInfo =
+                            `${formatBytes(t.compressed_bytes)}` +
+                            (t.decompressed_bytes
+                                ? ` → ${formatBytes(t.decompressed_bytes)}`
+                                : "");
+
+                        container.innerHTML += `
+        <div class="result-item" id="junk-${t.id}">
+          <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="showJunkThread('${t.id}')">
+            <div style="flex:1;cursor:pointer" onclick="showJunkThread('${t.id}')">
+              <strong>${escapeHtml(t.title || "(без названия)")}</strong>
+              <span class="badge project">${escapeHtml(t.project)}</span>
+              <span style="font-size:12px;color:#8b949e;margin-left:12px">${t.message_count} сообщ.</span>
+              <span style="font-size:12px;color:#8b949e;margin-left:8px">${sizeInfo}</span>
+              <span style="font-size:12px;margin-left:8px">${statusIcon}</span>
+              ${errorBadge}
+            </div>
+          </div>
+        </div>`;
+                    });
+                } catch (e) {
+                    container.innerHTML = `<div class="empty" style="color:#f85149">Ошибка: ${e.message}</div>`;
+                }
+            }
+
+            async function showJunkThread(sid) {
+                // Find thread data
+                const t = _junkThreads.find((x) => x.id === sid);
+                if (!t) return;
+                const container = $("junk-list");
+
+                let html = `<button class="secondary" onclick="loadJunk()" style="margin-bottom:12px">← Назад</button>
+    <div style="font-size:13px;color:#8b949e;margin-bottom:12px">
+      <strong>${escapeHtml(t.title || "(без названия)")}</strong>
+      <span class="badge project">${escapeHtml(t.project)}</span>
+      · ${t.message_count} сырых сообщ. · ${formatBytes(t.compressed_bytes)}
+      ${t.error ? `· 💥 ${escapeHtml(t.error)}` : ""}
+    </div>
+    <div style="font-size:12px;color:#8b949e;margin-bottom:12px">⚠️ Показаны СЫРЫЕ данные из Zed, включая Thinking, ToolUse и прочий мусор</div>`;
+
+                if (t.error) {
+                    html += `<div class="result-item"><div class="content" style="color:#f85149">⚠️ Данные не разжаты: ${escapeHtml(t.error)}</div></div>`;
+                    container.innerHTML = html;
+                    return;
+                }
+
+                // Fetch RAW messages directly from Zed via the backend
+                try {
+                    const r = await fetch(
+                        `${BASE}/admin/zed-threads/${sid}/messages`,
+                    );
+                    if (r.ok) {
+                        const data = await r.json();
+                        const msgs = data.messages;
+                        html += `<div style="font-size:13px;color:#8b949e;margin-bottom:12px">Сырых сообщений из Zed: ${msgs.length}</div>`;
+
+                        // Check if synced in CacheProxy too
+                        try {
+                            const r2 = await fetch(
+                                `${BASE}/messages/${sid}?limit=1`,
+                            );
+                            if (r2.ok) {
+                                html += `<div style="font-size:13px;color:#2ea043;margin-bottom:12px">✅ Этот тред есть в CacheProxy (с фильтрацией)</div>`;
+                            } else {
+                                html += `<div class="result-item">
+                                  <div class="content" style="color:#8b949e;margin-bottom:8px">⏳ В CacheProxy отсутствует</div>
+                                  <button onclick="syncJunkThread('${sid}')" style="font-size:13px">📥 Синхронизировать в CacheProxy</button>
+                                  <span id="junk-sync-status-${sid}" style="font-size:12px;color:#8b949e;margin-left:8px"></span>
+                                </div>`;
+                            }
+                        } catch (e) {}
+
+                        msgs.forEach((m, i) => {
+                            const icon =
+                                m.role === "user"
+                                    ? "👤"
+                                    : m.role === "assistant"
+                                      ? "🤖"
+                                      : "⚙️";
+                            const blocks = m.blocks ? m.blocks.join(" | ") : "";
+                            html += `
+      <div class="result-item">
+        <div class="meta">${icon} ${m.role} · #${i + 1} ${blocks ? `· [${escapeHtml(blocks)}]` : ""}</div>
+        <div class="content" style="${m.has_thinking ? "border-left:3px solid #d29922;padding-left:8px" : ""}">${escapeHtml(m.content)}</div>
+      </div>`;
+                        });
+                    } else {
+                        const errData = await r.json();
+                        html += `<div class="result-item">
+                          <div class="content" style="color:#8b949e;margin-bottom:8px">⏳ Этот тред не синхронизирован в CacheProxy</div>
+                          <button onclick="syncJunkThread('${sid}')" style="font-size:13px">📥 Синхронизировать в CacheProxy</button>
+                          <span id="junk-sync-status-${sid}" style="font-size:12px;color:#8b949e;margin-left:8px"></span>
+                        </div>`;
+                    }
+                } catch (e) {
+                    html += `<div class="result-item"><div class="content" style="color:#f85149">⚠️ Ошибка: ${escapeHtml(e.message)}</div></div>`;
+                }
+
+                container.innerHTML = html;
+            }
+
+            async function syncJunkThread(sid) {
+                const btn = document.querySelector(
+                    `button[onclick="syncJunkThread('${sid}')"]`,
+                );
+                const statusEl = $(`junk-sync-status-${sid}`);
+                if (btn) {
+                    btn.disabled = true;
+                    btn.textContent = "⏳ Синхронизация...";
+                }
+                statusEl.textContent = "⏳";
+                try {
+                    const r = await fetch(
+                        `${BASE}/admin/zed-threads/${sid}/sync`,
+                        { method: "POST" },
+                    );
+                    const data = await r.json();
+                    if (r.ok) {
+                        statusEl.textContent = `✅ Синхронизировано (${data.messages} сообщ.)`;
+                        if (btn) btn.textContent = "✅ Готово";
+                    } else {
+                        statusEl.textContent = `❌ ${data.detail || "Ошибка"}`;
+                        if (btn) {
+                            btn.disabled = false;
+                            btn.textContent =
+                                "📥 Синхронизировать в CacheProxy";
+                        }
+                    }
+                } catch (e) {
+                    statusEl.textContent = `❌ ${e.message}`;
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.textContent = "📥 Синхронизировать в CacheProxy";
+                    }
+                }
             }
 
             // Init: load sessions + projects + daemon status

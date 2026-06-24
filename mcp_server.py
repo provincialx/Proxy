@@ -107,6 +107,8 @@ def _format_session(
         "",
     ]
     for m in messages:
+        if m.role == 'tool':
+            continue  # Skip tool messages — break API providers
         snippet = _snippet(m.content, snippet_len)
         lines.append(f"[{m.role}] {snippet}")
         lines.append("")

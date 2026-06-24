@@ -76,6 +76,9 @@ def strip_thinking(content: Optional[str]) -> str:
     # {"Image": {...}} (JSON image blocks)
     result = _strip_json_block(result, "Image")
 
+    # {"ToolResult": {...}} (JSON tool result blocks — break API providers)
+    result = _strip_json_block(result, "ToolResult")
+
     # [Tool: name] {...} — remove entire line(s) with tool calls
     result = re.sub(
         r"\[Tool:.*?(\n|$)",

@@ -28,6 +28,9 @@ def _concat_summary(messages: list[tuple[str, str]]) -> str:
     """Concatenate all messages into one text block (no LLM needed)."""
     parts = []
     for role, content in messages:
+        # Skip tool messages — they break API providers (no tool_calls parent)
+        if role == 'tool':
+            continue
         text = _clean_text(content)
         if len(text) < 15:
             continue
@@ -76,6 +79,9 @@ class Summarizer:
         # Build plain-text conversation (always needed for concat fallback)
         all_texts = []
         for role, content in messages:
+            # Skip tool messages — they break API providers (no tool_calls parent)
+            if role == 'tool':
+                continue
             text = _clean_text(content)
             if len(text) < 15:
                 continue
@@ -164,6 +170,9 @@ class Summarizer:
         """Format messages for LLM prompt (with role labels)."""
         parts = []
         for role, content in messages:
+            # Skip tool messages — they break API providers (no tool_calls parent)
+            if role == 'tool':
+                continue
             text = _clean_text(content)
             if len(text) < 15:
                 continue
