@@ -271,12 +271,14 @@ def admin_sanitize():
 
             ctx = Context(
                 session_id=s.id,
-                summary=result.get("title") or f"Archived session: {s.title or 'Untitled'}",
+                summary=result.get("title")
+                or f"Archived session: {s.title or 'Untitled'}",
                 content=result.get("summary") or "",
                 keywords=result.get("keywords") or (s.project or ""),
             )
             try:
                 from app.services import EmbeddingService
+
                 ctx.embedding = EmbeddingService.embed(ctx.content or "")
             except Exception:
                 pass
@@ -624,6 +626,54 @@ def admin_zed_thread_messages(thread_id: str):
         )
 
     return {"messages": result_messages}
+
+
+class SidebarThreadOut(BaseModel):
+    thread_id: str
+    session_id: str | None
+    agent_id: str | None
+    title: str | None
+    updated_at: str | None
+    created_at: str | None
+    folder_paths: str | None
+    folder_paths_order: str | None
+    archived: int | None
+    main_worktree_paths: str | None
+    main_worktree_paths_order: str | None
+    remote_connection: str | None
+    interacted_at: str | None
+    title_override: str | None
+
+
+@router.get("/sidebar-threads")
+def admin_sidebar_threads():
+    """Read the sidebar_threads table directly from Zed db.sqlite."""
+    import sqlite3
+
+    sidebar_db, threads_db = _zed_db_paths()
+    if not sidebar_db:
+        raise HTTPException(status_code=503, detail="Zed db.sqlite not found")
+
+    conn = sqlite3.connect(f"file:{sidebar_db}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT thread_id, session_id, agent_id, title, "
+        "updated_at, created_at, folder_paths, folder_paths_order, "
+        "archived, main_worktree_paths, main_worktree_paths_order, "
+        "remote_connection, interacted_at, title_override "
+        "FROM sidebar_threads ORDER BY interacted_at DESC"
+    )
+    rows = []
+    for r in cur.fetchall():
+        d = dict(r)
+        # Convert BLOB thread_id to hex string
+        if isinstance(d.get("thread_id"), bytes):
+            d["thread_id"] = d["thread_id"].hex()
+        rows.append(d)
+    conn.close()
+
+    return {"threads": rows, "total": len(rows)}
 
 
 @router.post("/zed-threads/{thread_id}/sync")

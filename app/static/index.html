@@ -36,7 +36,7 @@
                 font-size: 14px;
             }
             .container {
-                max-width: 960px;
+                max-width: 100%;
                 margin: 0 auto;
                 padding: 24px;
             }
@@ -227,6 +227,48 @@
                 display: block;
                 margin-bottom: 4px;
             }
+            table.data-table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 13px;
+            }
+            table.data-table th {
+                text-align: left;
+                padding: 8px 10px;
+                background: #21262d;
+                color: #8b949e;
+                font-weight: 600;
+                border-bottom: 1px solid #30363d;
+                white-space: nowrap;
+                cursor: pointer;
+                user-select: none;
+                position: sticky;
+                top: 0;
+            }
+            table.data-table th:hover {
+                color: #f0f6fc;
+            }
+            table.data-table td {
+                padding: 6px 10px;
+                border-bottom: 1px solid #21262d;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            table.data-table tr:hover td {
+                background: #1c2128;
+            }
+            table.data-table .col-title {
+                min-width: 200px;
+            }
+            table.data-table .col-path {
+                min-width: 160px;
+            }
+            .threads-count {
+                font-size: 13px;
+                color: #8b949e;
+                margin-bottom: 12px;
+            }
         </style>
     </head>
     <body>
@@ -243,6 +285,7 @@
                     📁 Сессии
                 </div>
                 <div class="tab" onclick="switchTab('junk')">🗑️ Junk</div>
+                <div class="tab" onclick="switchTab('threads')">🧵 Threads</div>
             </div>
 
             <!-- SEARCH TAB -->
@@ -395,6 +438,36 @@
                     </div>
                 </div>
             </div>
+
+            <!-- THREADS TAB (sidebar_threads from db.sqlite) -->
+            <div id="tab-threads" class="tab-content">
+                <div class="card">
+                    <h2>🧵 sidebar_threads (db.sqlite)</h2>
+                    <div class="row">
+                        <input
+                            id="threads-filter"
+                            placeholder="Фильтр по title/folder/project"
+                            style="max-width: 250px"
+                        />
+                        <span
+                            id="threads-stats"
+                            style="
+                                font-size: 13px;
+                                color: #8b949e;
+                                align-self: center;
+                            "
+                        ></span>
+                        <button onclick="loadSidebarThreads()">
+                            🔄 Refresh
+                        </button>
+                    </div>
+                </div>
+                <div class="card" style="overflow-x: auto">
+                    <div id="threads-list">
+                        <div class="empty">Нажмите Refresh для загрузки</div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <script>
@@ -418,6 +491,7 @@
                 if (name === "sessions") loadSessions();
                 if (name === "search") doSearch();
                 if (name === "junk") loadJunk();
+                if (name === "threads") loadSidebarThreads();
             }
 
             function log(el, msg, type = "") {
@@ -1105,6 +1179,129 @@
                     }
                 }
             }
+
+            // ─── THREADS (sidebar_threads from db.sqlite) ───────────
+
+            let _sidebarThreads = [];
+            let _threadsSortCol = null;
+            let _threadsSortAsc = true;
+
+            async function loadSidebarThreads() {
+                const filter = $("threads-filter").value.trim().toLowerCase();
+                const container = $("threads-list");
+
+                try {
+                    const r = await fetch(`${BASE}/admin/sidebar-threads`);
+                    if (!r.ok) {
+                        const err = await r.json();
+                        container.innerHTML = `<div class="empty" style="color:#f85149">Ошибка: ${escapeHtml(err.detail || r.statusText)}</div>`;
+                        return;
+                    }
+                    const data = await r.json();
+                    _sidebarThreads = data.threads;
+
+                    $("threads-stats").textContent = `${data.total} записей`;
+
+                    // Filter
+                    let filtered = _sidebarThreads;
+                    if (filter) {
+                        filtered = filtered.filter(
+                            (t) =>
+                                (t.title || "")
+                                    .toLowerCase()
+                                    .includes(filter) ||
+                                (t.folder_paths || "")
+                                    .toLowerCase()
+                                    .includes(filter) ||
+                                (t.session_id || "")
+                                    .toLowerCase()
+                                    .includes(filter),
+                        );
+                    }
+
+                    if (filtered.length === 0) {
+                        container.innerHTML =
+                            '<div class="empty">Нет записей</div>';
+                        return;
+                    }
+
+                    // Sort
+                    if (_threadsSortCol) {
+                        filtered.sort((a, b) => {
+                            const va = (a[_threadsSortCol] || "").toString();
+                            const vb = (b[_threadsSortCol] || "").toString();
+                            const cmp = va.localeCompare(vb);
+                            return _threadsSortAsc ? cmp : -cmp;
+                        });
+                    }
+
+                    let html = `<div class="threads-count">Показано: ${filtered.length} из ${data.total}</div>`;
+                    html += `<table class="data-table">`;
+
+                    // Header
+                    const columns = [
+                        { key: "title", label: "Title" },
+                        { key: "session_id", label: "Session ID" },
+                        { key: "folder_paths", label: "Folder" },
+                        { key: "archived", label: "Arch" },
+                        { key: "interacted_at", label: "Interacted" },
+                        { key: "updated_at", label: "Updated" },
+                        { key: "created_at", label: "Created" },
+                        { key: "remote_connection", label: "Remote" },
+                        { key: "title_override", label: "Title Ovrd" },
+                    ];
+
+                    html += "<tr>";
+                    columns.forEach((col) => {
+                        const arrow =
+                            _threadsSortCol === col.key
+                                ? _threadsSortAsc
+                                    ? " ▲"
+                                    : " ▼"
+                                : "";
+                        html += `<th onclick="sortThreads('${col.key}')">${col.label}${arrow}</th>`;
+                    });
+                    html += "</tr>";
+
+                    // Body
+                    filtered.forEach((t) => {
+                        const archived =
+                            t.archived === 1
+                                ? "📦"
+                                : t.archived === 0
+                                  ? "🟢"
+                                  : "—";
+                        html += `<tr>`;
+                        html += `<td class="col-title" title="${escapeHtml(t.title || "")}">${escapeHtml(t.title || "—")}</td>`;
+                        html += `<td style="font-family:monospace;font-size:12px" title="${escapeHtml(t.session_id || "")}">${escapeHtml(t.session_id || "—")}</td>`;
+                        html += `<td class="col-path" title="${escapeHtml(t.folder_paths || "")}">${escapeHtml(t.folder_paths || "—")}</td>`;
+                        html += `<td>${archived}</td>`;
+                        html += `<td>${formatDate(t.interacted_at)}</td>`;
+                        html += `<td>${formatDate(t.updated_at)}</td>`;
+                        html += `<td>${formatDate(t.created_at)}</td>`;
+                        html += `<td>${escapeHtml(t.remote_connection || "—")}</td>`;
+                        html += `<td>${escapeHtml(t.title_override || "—")}</td>`;
+                        html += `</tr>`;
+                    });
+
+                    html += "</table>";
+                    container.innerHTML = html;
+                } catch (e) {
+                    container.innerHTML = `<div class="empty" style="color:#f85149">Ошибка: ${escapeHtml(e.message)}</div>`;
+                }
+            }
+
+            function sortThreads(col) {
+                if (_threadsSortCol === col) {
+                    _threadsSortAsc = !_threadsSortAsc;
+                } else {
+                    _threadsSortCol = col;
+                    _threadsSortAsc = true;
+                }
+                loadSidebarThreads();
+            }
+
+            // ─── INIT ────────────────────────────────────────────────
 
             // Init: load sessions + projects + daemon status
             setTimeout(() => {

@@ -16,45 +16,59 @@ from app.services.archiver import start_archiver
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Create tables and preload embedding model on startup."""
-    Base.metadata.create_all(bind=engine)
+    db_ok = False
+    try:
+        Base.metadata.create_all(bind=engine)
+        db_ok = True
+    except Exception as e:
+        print(f"⚠ PostgreSQL недоступен: {e}")
+        print(
+            "⚠ Сервер работает в режиме 'только локальные файлы' (threads.db, db.sqlite)"
+        )
 
-    # Migrate existing tables — add columns that may not exist yet
-    from sqlalchemy import inspect
-    from sqlalchemy import text as sa_text
+    if db_ok:
+        # Migrate existing tables — add columns that may not exist yet
+        from sqlalchemy import inspect
+        from sqlalchemy import text as sa_text
 
-    inspector = inspect(engine)
-    cols = {c["name"] for c in inspector.get_columns("sessions")}
-    with engine.connect() as conn:
-        if "status" not in cols:
-            conn.execute(
-                sa_text(
-                    "ALTER TABLE sessions ADD COLUMN status VARCHAR(16) NOT NULL DEFAULT 'active'"
+        inspector = inspect(engine)
+        cols = {c["name"] for c in inspector.get_columns("sessions")}
+        with engine.connect() as conn:
+            if "status" not in cols:
+                conn.execute(
+                    sa_text(
+                        "ALTER TABLE sessions ADD COLUMN status VARCHAR(16) NOT NULL DEFAULT 'active'"
+                    )
                 )
-            )
-            conn.commit()
-            print("✓ Added sessions.status column")
-        if "archived_at" not in cols:
-            conn.execute(
-                sa_text("ALTER TABLE sessions ADD COLUMN archived_at TIMESTAMPTZ")
-            )
-            conn.commit()
-            print("✓ Added sessions.archived_at column")
+                conn.commit()
+                print("✓ Added sessions.status column")
+            if "archived_at" not in cols:
+                conn.execute(
+                    sa_text("ALTER TABLE sessions ADD COLUMN archived_at TIMESTAMPTZ")
+                )
+                conn.commit()
+                print("✓ Added sessions.archived_at column")
 
     # Preload embedding model — first request loads ~252MB model
-    # Doing it here avoids 10-15s cold start on first message
-    from app.services import EmbeddingService
-
-    # Ensure cache directory exists
-    cache_dir = EmbeddingService._get_cache_dir()
-    Path(cache_dir).mkdir(parents=True, exist_ok=True)
     try:
-        EmbeddingService._get_model()
-        print(f"✓ Embedding model loaded (cache: {cache_dir})")
-    except Exception as e:
-        print(f"⚠ Embedding model load failed: {e}")
+        from app.services import EmbeddingService
+
+        cache_dir = EmbeddingService._get_cache_dir()
+        Path(cache_dir).mkdir(parents=True, exist_ok=True)
+        try:
+            EmbeddingService._get_model()
+            print(f"✓ Embedding model loaded (cache: {cache_dir})")
+        except Exception as e:
+            print(f"⚠ Embedding model load failed: {e}")
+    except Exception:
+        pass
 
     # Start background auto-archiver
-    start_archiver()
+    if db_ok:
+        try:
+            start_archiver()
+        except Exception as e:
+            print(f"⚠ Archiver start failed: {e}")
 
     # Auto-open browser
     try:
@@ -108,4 +122,15 @@ async def global_exception_handler(request: Request, exc: Exception):
     return JSONResponse(
         status_code=500,
         content={"detail": f"Internal error: {exc}"},
+    )
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "app.main:app",
+        host=settings.app_host,
+        port=settings.app_port,
+        reload=False,
     )
