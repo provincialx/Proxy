@@ -101,7 +101,7 @@ def archive_session(session_id: UUID, db: SASession = Depends(get_db)):
         try:
             ctx.embedding = EmbeddingService.embed(ctx.content or "")
         except Exception as e:
-            print(f"⚠ Archive embedding failed: {e}")
+            print(f"[WARN] Archive embedding failed: {e}")
         db.add(ctx)
 
     db.commit()

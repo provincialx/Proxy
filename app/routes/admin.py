@@ -97,7 +97,7 @@ def admin_projects():
         if projects:
             return ProjectsResult(projects=projects)
     except Exception as e:
-        print(f"⚠ admin/projects: sync_agent failed ({e}), fallback to DB")
+        print(f"[WARN] admin/projects: sync_agent failed ({e}), fallback to DB")
 
     # Fallback: projects from PostgreSQL sessions
     db = SessionLocal()
@@ -391,13 +391,13 @@ def admin_resummarize(session_id: str | None = None):
 
                     ctx.embedding = EmbeddingService.embed(ctx.content)
                 except Exception as e:
-                    print(f"⚠ Resummarize embedding failed: {e}")
+                    print(f"[WARN] Resummarize embedding failed: {e}")
                 db.add(ctx)
                 summarized += 1
                 print(f"  ✓ Resummarized {s.id} ({s.title})")
             except Exception as e:
                 errors.append(str(e))
-                print(f"⚠ Resummarize error session {s.id}: {e}")
+                print(f"[WARN] Resummarize error session {s.id}: {e}")
 
         db.commit()
         return ReSummarizeResult(
@@ -454,17 +454,41 @@ def admin_zed_threads():
     if not sidebar_db or not threads_db:
         raise HTTPException(status_code=503, detail="Zed databases not found")
 
+    # Only show allowed threads
+    allowed = [
+        '39d61fee-963c-4886-9725-b4c4be51bbc5',
+        '0bc59ece-5333-4b9d-90a5-068f3522e697',
+        '58f4fd45-eb4f-498d-88cd-364ebbbf4505',
+        '5247eb02-6b2d-48e1-8cc6-04826430a297',
+        '5aca28a7-8a01-4d6c-855d-0e5005611d60',
+        '0997eacc-1b44-47c2-bca2-5d7a4c999f0a',
+        '996c683d-67e3-4019-a0f3-9795246b1c5b',
+    ]
+    placeholders = ','.join('?' for _ in allowed)
+
     # Read sidebar threads
     s_conn = sqlite3.connect(f"file:{sidebar_db}?mode=ro", uri=True)
     s_conn.row_factory = sqlite3.Row
     s_cur = s_conn.cursor()
     s_cur.execute(
-        "SELECT session_id, title, folder_paths, archived, "
-        "created_at, updated_at, interacted_at "
-        "FROM sidebar_threads ORDER BY interacted_at DESC"
+        f"SELECT session_id, title, folder_paths, archived, "
+        f"created_at, updated_at, interacted_at "
+        f"FROM sidebar_threads WHERE session_id IN ({placeholders}) ORDER BY interacted_at DESC",
+        allowed
     )
     sidebar_rows = [dict(r) for r in s_cur.fetchall()]
     s_conn.close()
+
+    # Deduplicate: keep first entry per session_id (most recent)
+    seen = set()
+    deduped = []
+    for row in sidebar_rows:
+        sid = row["session_id"]
+        if sid in seen:
+            continue
+        seen.add(sid)
+        deduped.append(row)
+    sidebar_rows = deduped
 
     # Read thread content
     t_conn = sqlite3.connect(f"file:{threads_db}?mode=ro", uri=True)
@@ -692,25 +716,40 @@ def admin_sidebar_threads():
     if not sidebar_db:
         raise HTTPException(status_code=503, detail="Zed db.sqlite not found")
 
+    allowed = [
+        '39d61fee-963c-4886-9725-b4c4be51bbc5',
+        '0bc59ece-5333-4b9d-90a5-068f3522e697',
+        '58f4fd45-eb4f-498d-88cd-364ebbbf4505',
+        '5247eb02-6b2d-48e1-8cc6-04826430a297',
+        '5aca28a7-8a01-4d6c-855d-0e5005611d60',
+        '0997eacc-1b44-47c2-bca2-5d7a4c999f0a',
+        '996c683d-67e3-4019-a0f3-9795246b1c5b',
+    ]
+    placeholders = ','.join('?' for _ in allowed)
+
     conn = sqlite3.connect(f"file:{sidebar_db}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     cur.execute(
-        "SELECT thread_id, session_id, agent_id, title, "
-        "updated_at, created_at, folder_paths, folder_paths_order, "
-        "archived, main_worktree_paths, main_worktree_paths_order, "
-        "remote_connection, interacted_at, title_override "
-        "FROM sidebar_threads ORDER BY interacted_at DESC"
+        f"SELECT thread_id, session_id, agent_id, title, "
+        f"updated_at, created_at, folder_paths, folder_paths_order, "
+        f"archived, main_worktree_paths, main_worktree_paths_order, "
+        f"remote_connection, interacted_at, title_override "
+        f"FROM sidebar_threads WHERE session_id IN ({placeholders}) ORDER BY interacted_at DESC",
+        allowed
     )
     rows = []
+    seen = set()
     for r in cur.fetchall():
         d = dict(r)
-        # Convert BLOB thread_id to hex string
+        sid = d.get("session_id")
+        if sid in seen:
+            continue
+        seen.add(sid)
         if isinstance(d.get("thread_id"), bytes):
             d["thread_id"] = d["thread_id"].hex()
         rows.append(d)
     conn.close()
-
     return {"threads": rows, "total": len(rows)}
 
 
@@ -832,13 +871,13 @@ def admin_sync_zed_thread(thread_id: str):
                     json={"session_id": sid, "role": msg["role"], "content": content},
                 )
                 if r.status_code not in (200, 201):
-                    print(f"  ⚠ Message send failed: {r.status_code}")
+                    print(f"[WARN] Message send failed: {r.status_code}")
 
             # Archive if original was archived
             if s_row.get("archived"):
                 r = client.post(f"/sessions/{sid}/archive")
                 if r.status_code not in (200, 201):
-                    print(f"  ⚠ Archive failed: {r.status_code}")
+                    print(f"[WARN] Archive failed: {r.status_code}")
 
         return {
             "synced": True,

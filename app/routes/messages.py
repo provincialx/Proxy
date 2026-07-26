@@ -45,7 +45,7 @@ def create_message(body: MessageCreate, db: SASession = Depends(get_db)):
     try:
         ctx.embedding = EmbeddingService.embed(clean_content)
     except Exception as embed_err:
-        print(f"⚠ Embedding failed (message saved without vector): {embed_err}")
+        print(f"[WARN] Embedding failed (message saved without vector): {embed_err}")
     db.add(ctx)
 
     # Bump session updated_at

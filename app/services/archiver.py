@@ -64,7 +64,7 @@ def _archive_session(db, session: Session) -> None:
     try:
         ctx.embedding = EmbeddingService.embed(ctx.content or "")
     except Exception as e:
-        print(f"⚠ Auto-archive embedding failed: {e}")
+        print(f"[WARN] Auto-archive embedding failed: {e}")
     db.add(ctx)
     print(
         f"✓ Auto-archived session {session.id} ({session.title}) "
@@ -97,7 +97,7 @@ def _archive_loop() -> None:
             finally:
                 db.close()
         except Exception as e:
-            print(f"⚠ Auto-archiver error: {e}")
+            print(f"[WARN] Auto-archiver error: {e}")
         time.sleep(CHECK_INTERVAL)
 
 

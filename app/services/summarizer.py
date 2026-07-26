@@ -163,7 +163,7 @@ class Summarizer:
                     "keywords": keywords,
                 }
         except Exception as e:
-            print(f"⚠ LLM summarization failed, using concat fallback: {e}")
+            print(f"[WARN] LLM summarization failed, using concat fallback: {e}")
             return None
 
     def _format_for_llm(self, messages: list[tuple[str, str]]) -> str:
