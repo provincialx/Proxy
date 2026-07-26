@@ -534,7 +534,22 @@ def admin_zed_threads():
                 error = str(e)
                 decompressed_ok = False
         else:
-            error = None  # Thread exists in sidebar but no content yet
+            # Fallback: get message count from PostgreSQL
+            try:
+                from app.database import SessionLocal
+                from app.models import Session, Message
+
+                row_title = row.get("title")
+                if row_title:
+                    db = SessionLocal()
+                    pg_session = db.query(Session).filter(Session.title == row_title).first()
+                    if pg_session:
+                        msg_count = db.query(Message).filter(Message.session_id == pg_session.id).count()
+                        compressed_bytes = 1
+                    db.close()
+            except Exception:
+                pass
+            error = None
 
         title = row.get("title") or (
             thread_entry.get("summary") if thread_entry else None
