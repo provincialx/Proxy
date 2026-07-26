@@ -454,27 +454,14 @@ def admin_zed_threads():
     if not sidebar_db or not threads_db:
         raise HTTPException(status_code=503, detail="Zed databases not found")
 
-    # Only show allowed threads
-    allowed = [
-        '39d61fee-963c-4886-9725-b4c4be51bbc5',
-        '0bc59ece-5333-4b9d-90a5-068f3522e697',
-        '58f4fd45-eb4f-498d-88cd-364ebbbf4505',
-        '5247eb02-6b2d-48e1-8cc6-04826430a297',
-        '5aca28a7-8a01-4d6c-855d-0e5005611d60',
-        '0997eacc-1b44-47c2-bca2-5d7a4c999f0a',
-        '996c683d-67e3-4019-a0f3-9795246b1c5b',
-    ]
-    placeholders = ','.join('?' for _ in allowed)
-
     # Read sidebar threads
     s_conn = sqlite3.connect(f"file:{sidebar_db}?mode=ro", uri=True)
     s_conn.row_factory = sqlite3.Row
     s_cur = s_conn.cursor()
     s_cur.execute(
-        f"SELECT session_id, title, folder_paths, archived, "
-        f"created_at, updated_at, interacted_at "
-        f"FROM sidebar_threads WHERE session_id IN ({placeholders}) ORDER BY interacted_at DESC",
-        allowed
+        "SELECT session_id, title, folder_paths, archived, "
+        "created_at, updated_at, interacted_at "
+        "FROM sidebar_threads ORDER BY interacted_at DESC"
     )
     sidebar_rows = [dict(r) for r in s_cur.fetchall()]
     s_conn.close()
@@ -716,27 +703,15 @@ def admin_sidebar_threads():
     if not sidebar_db:
         raise HTTPException(status_code=503, detail="Zed db.sqlite not found")
 
-    allowed = [
-        '39d61fee-963c-4886-9725-b4c4be51bbc5',
-        '0bc59ece-5333-4b9d-90a5-068f3522e697',
-        '58f4fd45-eb4f-498d-88cd-364ebbbf4505',
-        '5247eb02-6b2d-48e1-8cc6-04826430a297',
-        '5aca28a7-8a01-4d6c-855d-0e5005611d60',
-        '0997eacc-1b44-47c2-bca2-5d7a4c999f0a',
-        '996c683d-67e3-4019-a0f3-9795246b1c5b',
-    ]
-    placeholders = ','.join('?' for _ in allowed)
-
     conn = sqlite3.connect(f"file:{sidebar_db}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     cur.execute(
-        f"SELECT thread_id, session_id, agent_id, title, "
-        f"updated_at, created_at, folder_paths, folder_paths_order, "
-        f"archived, main_worktree_paths, main_worktree_paths_order, "
-        f"remote_connection, interacted_at, title_override "
-        f"FROM sidebar_threads WHERE session_id IN ({placeholders}) ORDER BY interacted_at DESC",
-        allowed
+        "SELECT thread_id, session_id, agent_id, title, "
+        "updated_at, created_at, folder_paths, folder_paths_order, "
+        "archived, main_worktree_paths, main_worktree_paths_order, "
+        "remote_connection, interacted_at, title_override "
+        "FROM sidebar_threads ORDER BY interacted_at DESC"
     )
     rows = []
     seen = set()

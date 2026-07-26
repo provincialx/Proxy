@@ -179,17 +179,6 @@ def _parse_messages(thread_data: dict[str, Any]) -> list[dict[str, str]]:
 
 
 # Only sync these 7 thread IDs
-_ALLOWED_IDS = {
-    '39d61fee-963c-4886-9725-b4c4be51bbc5',  # Game
-    '0bc59ece-5333-4b9d-90a5-068f3522e697',  # CacheProxy
-    '58f4fd45-eb4f-498d-88cd-364ebbbf4505',  # Build setup
-    '5247eb02-6b2d-48e1-8cc6-04826430a297',  # Pixel
-    '5aca28a7-8a01-4d6c-855d-0e5005611d60',  # LLM/VDS
-    '0997eacc-1b44-47c2-bca2-5d7a4c999f0a',  # LLMvRAM
-    '996c683d-67e3-4019-a0f3-9795246b1c5b',  # Parse
-}
-
-
 def get_available_projects() -> list[str]:
     """Scan all threads and return distinct project names."""
     sidebar_db, _ = _db_paths()
@@ -198,13 +187,10 @@ def get_available_projects() -> list[str]:
 
     s_conn = sqlite3.connect(f"file:{sidebar_db}?mode=ro", uri=True)
     s_conn.row_factory = sqlite3.Row
-    s_cur = s_conn.cursor()
-    s_cur.execute("SELECT session_id, folder_paths FROM sidebar_threads")
+    cur = s_conn.cursor()
+    cur.execute("SELECT folder_paths FROM sidebar_threads")
     projects: set[str] = set()
-    for r in s_cur.fetchall():
-        sid = r["session_id"]
-        if sid not in _ALLOWED_IDS:
-            continue
+    for r in cur.fetchall():
         folder_paths = (r["folder_paths"] or "").strip()
         if folder_paths:
             project = Path(folder_paths.split("\n")[0].strip()).name or "zed"
@@ -267,9 +253,6 @@ def _get_threads(projects: list[str] | None = None) -> list[dict[str, Any]]:
     for row in sidebar_rows:
         sid = row["session_id"]
         if not sid:
-            continue
-        # Filter to only allowed threads
-        if sid not in _ALLOWED_IDS:
             continue
         # Deduplicate by session_id (keep first)
         if sid in seen_ids:
