@@ -534,7 +534,7 @@ def admin_zed_threads():
                 error = str(e)
                 decompressed_ok = False
         else:
-            error = "No content in threads.db"
+            error = None  # Thread exists in sidebar but no content yet
 
         title = row.get("title") or (
             thread_entry.get("summary") if thread_entry else None
@@ -600,7 +600,46 @@ def admin_zed_thread_messages(thread_id: str):
     t_conn.close()
 
     if not t_row or not t_row[0]:
-        return {"messages": [], "total": 0, "thread_id": thread_id, "title": None, "note": "No content in threads.db"}
+        # Fallback: try to get messages from PostgreSQL
+        try:
+            from app.database import SessionLocal
+            from app.models import Session, Message
+            from uuid import UUID
+
+            db = SessionLocal()
+            sessions = db.query(Session).filter(
+                Session.id == UUID(thread_id)
+            ).all()
+            if not sessions:
+                # Try matching by title from sidebar
+                sdb, _ = _zed_db_paths()
+                if sdb:
+                    s_conn = sqlite3.connect(f"file:{sdb}?mode=ro", uri=True)
+                    s_cur = s_conn.cursor()
+                    s_cur.execute("SELECT title FROM sidebar_threads WHERE session_id = ?", (thread_id,))
+                    s_row = s_cur.fetchone()
+                    s_conn.close()
+                    if s_row:
+                        sessions = db.query(Session).filter(Session.title == s_row[0]).all()
+
+            if sessions:
+                msgs = db.query(Message).filter(
+                    Message.session_id == sessions[0].id
+                ).order_by(Message.created_at.asc()).all()
+                db.close()
+                result = []
+                for m in msgs:
+                    result.append({
+                        "role": m.role or "user",
+                        "content": m.content or "",
+                        "blocks": ["text"],
+                        "has_thinking": False,
+                    })
+                return {"messages": result, "total": len(result), "thread_id": thread_id, "title": sessions[0].title, "note": "From PostgreSQL (not in threads.db)"}
+            db.close()
+        except Exception:
+            pass
+        return {"messages": [], "total": 0, "thread_id": thread_id, "title": None, "note": "No content"}
 
     # Decompress
     try:
