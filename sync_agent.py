@@ -336,7 +336,7 @@ def _send_to_cacheproxy(
     """Create session in CacheProxy, send content, archive."""
     try:
         with httpx.Client(base_url=url, timeout=120) as client:
-            # 0. Check if session already exists (by title + project)
+            # 0. Delete existing session with same title+project (clean slate)
             r = client.get(
                 "/sessions",
                 params={"limit": 100},
@@ -346,8 +346,11 @@ def _send_to_cacheproxy(
                 items = existing.get("sessions", []) if isinstance(existing, dict) else (existing or [])
                 for s in items:
                     if s.get("title") == thread["title"] and s.get("project") == thread["project"]:
-                        print(f"    ~ {thread['title'][:60]} already exists, skipping")
-                        return True
+                        sid = s.get("id")
+                        if sid:
+                            client.delete(f"/sessions/{sid}")
+                            print(f"    ~ {thread['title'][:60]} replaced")
+                            break
 
             # 1. Create session
             r = client.post(
