@@ -263,6 +263,7 @@ def _get_threads(projects: list[str] | None = None) -> list[dict[str, Any]]:
 
     # ── 3. Join and format ──
     results = []
+    seen_ids = set()
     for row in sidebar_rows:
         sid = row["session_id"]
         if not sid:
@@ -270,6 +271,10 @@ def _get_threads(projects: list[str] | None = None) -> list[dict[str, Any]]:
         # Filter to only allowed threads
         if sid not in _ALLOWED_IDS:
             continue
+        # Deduplicate by session_id (keep first)
+        if sid in seen_ids:
+            continue
+        seen_ids.add(sid)
 
         thread_entry = thread_data_map.get(sid)
         if not thread_entry:
@@ -308,7 +313,17 @@ def _get_threads(projects: list[str] | None = None) -> list[dict[str, Any]]:
     if projects:
         results = [r for r in results if r["project"] in projects]
 
-    return results
+    # Deduplicate by (title, project) — keep first entry
+    seen = set()
+    deduped = []
+    for r in results:
+        key = (r["title"], r["project"])
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(r)
+
+    return deduped
 
 
 # ── Send to CacheProxy ────────────────────────────────────────
@@ -321,6 +336,19 @@ def _send_to_cacheproxy(
     """Create session in CacheProxy, send content, archive."""
     try:
         with httpx.Client(base_url=url, timeout=120) as client:
+            # 0. Check if session already exists (by title + project)
+            r = client.get(
+                "/sessions",
+                params={"limit": 100},
+            )
+            if r.status_code == 200:
+                existing = r.json()
+                items = existing.get("sessions", []) if isinstance(existing, dict) else (existing or [])
+                for s in items:
+                    if s.get("title") == thread["title"] and s.get("project") == thread["project"]:
+                        print(f"    ~ {thread['title'][:60]} already exists, skipping")
+                        return True
+
             # 1. Create session
             r = client.post(
                 "/sessions",
@@ -413,16 +441,11 @@ def run_sync(
             result["errors"].append(f"CacheProxy not reachable: {e}")
             return result
 
-    sent = _load_sent_cache()
     threads = _get_threads(projects)
     result["total"] = len(threads)
 
     for t in threads:
-        if t["id"] in sent:
-            continue
         if _send_to_cacheproxy(t, url):
-            sent.add(t["id"])
-            _save_sent_cache(sent)
             result["synced"] += 1
         else:
             result["errors"].append(f"Failed: {t['title'][:60]}")
