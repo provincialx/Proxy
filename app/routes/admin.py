@@ -600,7 +600,7 @@ def admin_zed_thread_messages(thread_id: str):
     t_conn.close()
 
     if not t_row or not t_row[0]:
-        raise HTTPException(status_code=404, detail="Thread content not found")
+        return {"messages": [], "total": 0, "thread_id": thread_id, "title": None, "note": "No content in threads.db"}
 
     # Decompress
     try:
