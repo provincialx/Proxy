@@ -1,6 +1,10 @@
 """Application configuration via pydantic-settings."""
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings
+
+PROJECT_ROOT = Path(__file__).parent.parent
 
 
 class Settings(BaseSettings):
@@ -30,7 +34,10 @@ class Settings(BaseSettings):
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
         )
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {
+        "env_file": str(PROJECT_ROOT / ".env"),
+        "env_file_encoding": "utf-8",
+    }
 
 
 settings = Settings()

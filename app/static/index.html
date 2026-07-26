@@ -953,7 +953,7 @@
                 let html = `<button class="secondary" onclick="loadSessions()" style="margin-bottom:12px">← Назад</button>
     <div style="font-size:13px;color:#8b949e;margin-bottom:12px">Сообщений: ${msgs.length}</div>`;
 
-                msgs.forEach((m) => {
+                msgs.slice().reverse().forEach((m) => {
                     const icon =
                         m.role === "user"
                             ? "👤"
@@ -1081,7 +1081,9 @@
       · ${t.message_count} сырых сообщ. · ${formatBytes(t.compressed_bytes)}
       ${t.error ? `· 💥 ${escapeHtml(t.error)}` : ""}
     </div>
-    <div style="font-size:12px;color:#8b949e;margin-bottom:12px">⚠️ Показаны СЫРЫЕ данные из Zed, включая Thinking, ToolUse и прочий мусор</div>`;
+    <div style="font-size:12px;color:#8b949e;margin-bottom:12px">⚠️ Показаны СЫРЫЕ данные из Zed, включая Thinking, ToolUse и прочий мусор</div>
+    <button onclick="cleanJunkThread('${sid}')" style="font-size:13px;margin-bottom:12px">🧹 Очистить от мусора</button>
+    <span id="junk-clean-status-${sid}" style="font-size:12px;color:#8b949e;margin-left:8px"></span>`;
 
                 if (t.error) {
                     html += `<div class="result-item"><div class="content" style="color:#f85149">⚠️ Данные не разжаты: ${escapeHtml(t.error)}</div></div>`;
@@ -1115,7 +1117,9 @@
                             }
                         } catch (e) {}
 
-                        msgs.forEach((m, i) => {
+                        // Re-fetch messages after potential clean
+                        const msgList = msgs;
+                        msgs.slice().reverse().forEach((m, i) => {
                             const icon =
                                 m.role === "user"
                                     ? "👤"
@@ -1177,6 +1181,27 @@
                         btn.disabled = false;
                         btn.textContent = "📥 Синхронизировать в CacheProxy";
                     }
+                }
+            }
+
+            async function cleanJunkThread(sid) {
+                const statusEl = $(`junk-clean-status-${sid}`);
+                statusEl.textContent = "⏳ Очистка...";
+                try {
+                    const r = await fetch(
+                        `${BASE}/admin/zed-threads/${sid}/clean`,
+                        { method: "POST" },
+                    );
+                    const data = await r.json();
+                    if (r.ok) {
+                        statusEl.textContent = `✅ Чисто: -${data.thinking_removed}🤔 -${data.tooluse_removed}🔧 -${data.mention_removed}🔗 -${data.image_removed}🖼️ -${data.image_url_removed}📎 tool_results:${data.tool_results_cleared}`;
+                        // Refresh the view
+                        showJunkThread(sid);
+                    } else {
+                        statusEl.textContent = `❌ ${data.detail || "Ошибка"}`;
+                    }
+                } catch (e) {
+                    statusEl.textContent = `❌ ${e.message}`;
                 }
             }
 

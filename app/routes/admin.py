@@ -24,9 +24,10 @@ _daemon_interval = 60
 
 
 class SyncResult(BaseModel):
-    synced: int
-    total: int
-    errors: list[str]
+    synced: int = 0
+    total: int = 0
+    errors: list[str] = []
+    progress: str = ""
 
 
 class ProjectsResult(BaseModel):
@@ -115,18 +116,52 @@ def admin_projects():
 
 @router.post("/sync", response_model=SyncResult)
 def admin_sync(projects: str | None = None):
-    """Run one sync pass — send archived Zed threads to CacheProxy.
+    """Run one sync pass in background thread.
 
     Query param: ?projects=proj1,proj2  (comma-separated, optional)
     """
     from sync_agent import run_sync
+    import threading
 
     project_list = None
     if projects:
         project_list = [p.strip() for p in projects.split(",") if p.strip()]
 
-    res = run_sync(projects=project_list)
-    return SyncResult(**res)
+    global _sync_running, _sync_progress, _sync_last_result
+    _sync_running = True
+    _sync_progress = "Starting..."
+
+    def _do_sync():
+        global _sync_running, _sync_progress, _sync_last_result
+        try:
+            res = run_sync(projects=project_list, check_health=False)
+            _sync_last_result = res
+            _sync_progress = f"Done: {res.get('synced', 0)} synced, {res.get('total', 0)} total"
+        except Exception as e:
+            _sync_progress = f"Error: {e}"
+        finally:
+            _sync_running = False
+
+    thread = threading.Thread(target=_do_sync, daemon=True)
+    thread.start()
+
+    return SyncResult(synced=0, total=0, errors=[], progress="Started in background")
+
+
+_sync_running = False
+_sync_progress = ""
+_sync_last_result: dict | None = None
+
+
+@router.get("/sync/status")
+def sync_status():
+    """Returns sync status for polling."""
+    global _sync_running, _sync_progress, _sync_last_result
+    return {
+        "running": _sync_running,
+        "progress": _sync_progress,
+        "last_result": _sync_last_result,
+    }
 
 
 # ── Daemon ──────────────────────────────────────────────────
@@ -138,9 +173,9 @@ def _daemon_loop(interval: int) -> None:
 
     while not _daemon_stop.is_set():
         try:
-            run_sync()
+            run_sync(check_health=False)
         except Exception as e:
-            print(f"⚠ Daemon sync error: {e}")
+            print(f"[WARN] Daemon sync error: {e}")
         _daemon_stop.wait(timeout=interval)
 
 
@@ -471,11 +506,12 @@ def admin_zed_threads():
             compressed_bytes = len(raw_data)
             total_compressed += compressed_bytes
             try:
+                from io import BytesIO
                 dctx = zstandard.ZstdDecompressor()
-                reader = dctx.stream_reader(raw_data)
-                decompressed = reader.read()
+                raw = raw_data.encode("latin-1") if isinstance(raw_data, str) else raw_data
+                with dctx.stream_reader(BytesIO(raw)) as reader:
+                    decompressed = reader.read()
                 decompressed_bytes = len(decompressed)
-                total_decompressed += decompressed_bytes
                 thread_data = json_lib.loads(decompressed.decode("utf-8"))
                 raw_msgs = thread_data.get("messages", [])
                 for msg in raw_msgs:
@@ -557,9 +593,11 @@ def admin_zed_thread_messages(thread_id: str):
 
     # Decompress
     try:
+        from io import BytesIO
         dctx = zstandard.ZstdDecompressor()
-        reader = dctx.stream_reader(t_row[0])
-        thread_data = json_lib.loads(reader.read().decode("utf-8"))
+        raw = t_row[0].encode("latin-1") if isinstance(t_row[0], str) else t_row[0]
+        with dctx.stream_reader(BytesIO(raw)) as reader:
+            thread_data = json_lib.loads(reader.read().decode("utf-8"))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to decompress: {e}")
 
@@ -728,9 +766,11 @@ def admin_sync_zed_thread(thread_id: str):
 
     # Decompress
     try:
+        from io import BytesIO
         dctx = zstandard.ZstdDecompressor()
-        reader = dctx.stream_reader(t_row[0])
-        thread_data = json_lib.loads(reader.read().decode("utf-8"))
+        raw = t_row[0].encode("latin-1") if isinstance(t_row[0], str) else t_row[0]
+        with dctx.stream_reader(BytesIO(raw)) as reader:
+            thread_data = json_lib.loads(reader.read().decode("utf-8"))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to decompress thread: {e}")
 
@@ -812,3 +852,152 @@ def admin_sync_zed_thread(thread_id: str):
         raise HTTPException(status_code=503, detail="CacheProxy not reachable")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Sync failed: {e}")
+
+
+@router.post("/zed-threads/{thread_id}/clean")
+def admin_clean_zed_thread(thread_id: str):
+    """Clean a raw Zed thread — remove Thinking, ToolUse, Mention, Image, image_url blocks.
+
+    Modifies the thread data IN the Zed SQLite database (threads.db).
+    Preserves Text blocks only. Clears tool_results and reasoning_details.
+    """
+    import json as json_lib
+    import sqlite3
+
+    import zstandard
+
+    _, threads_db = _zed_db_paths()
+    if not threads_db:
+        raise HTTPException(status_code=503, detail="Zed threads.db not found")
+
+    def _contains_image_url(obj, depth=0):
+        """Recursively check if obj contains image_url anywhere."""
+        if depth > 10:
+            return False
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if isinstance(v, str) and "image_url" in v.lower():
+                    return True
+                if _contains_image_url(v, depth + 1):
+                    return True
+        elif isinstance(obj, list):
+            for item in obj:
+                if _contains_image_url(item, depth + 1):
+                    return True
+        return False
+
+    def _clean_blocks(blocks):
+        """Remove non-Text blocks, including image_url anywhere."""
+        result = []
+        for b in blocks:
+            if not isinstance(b, dict):
+                continue
+            bk = next(iter(b), "")
+            if "Thinking" in bk or "ToolUse" in bk or "Mention" in bk or "Image" in bk:
+                continue
+            if _contains_image_url(b):
+                continue
+            if "Text" in bk:
+                result.append(b)
+        return result
+
+    # Read thread
+    t_conn = sqlite3.connect(str(threads_db))
+    t_cur = t_conn.cursor()
+    t_cur.execute("SELECT id, data FROM threads WHERE id = ?", (thread_id,))
+    t_row = t_cur.fetchone()
+    t_conn.close()
+
+    if not t_row:
+        raise HTTPException(status_code=404, detail="Thread not found in threads.db")
+
+    raw_data = t_row[1]
+    if not raw_data:
+        raise HTTPException(status_code=404, detail="Thread has no data")
+
+    # Decompress
+    try:
+        from io import BytesIO
+        dctx = zstandard.ZstdDecompressor()
+        raw = raw_data.encode("latin-1") if isinstance(raw_data, str) else raw_data
+        with dctx.stream_reader(BytesIO(raw)) as reader:
+            thread_data = json_lib.loads(reader.read().decode("utf-8"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to decompress thread: {e}")
+
+    # Track stats
+    stats = {
+        "thinking_removed": 0,
+        "tooluse_removed": 0,
+        "mention_removed": 0,
+        "image_removed": 0,
+        "image_url_removed": 0,
+        "tool_results_cleared": 0,
+    }
+
+    # Process messages
+    cleaned_msgs = []
+    for msg in thread_data.get("messages", []):
+        if isinstance(msg, str):
+            cleaned_msgs.append(msg)
+            continue
+
+        cleaned = {}
+        for key, value in msg.items():
+            if key in ("User", "Agent"):
+                inner = dict(value) if isinstance(value, dict) else {}
+                content = inner.get("content", [])
+                if isinstance(content, list):
+                    new_content = []
+                    for block in content:
+                        if not isinstance(block, dict):
+                            continue
+                        bk = next(iter(block), "")
+                        if "Thinking" in bk:
+                            stats["thinking_removed"] += 1
+                            continue
+                        if "ToolUse" in bk:
+                            stats["tooluse_removed"] += 1
+                            continue
+                        if "Mention" in bk:
+                            stats["mention_removed"] += 1
+                            continue
+                        if "Image" in bk:
+                            stats["image_removed"] += 1
+                            continue
+                        if _contains_image_url(block):
+                            stats["image_url_removed"] += 1
+                            continue
+                        if "Text" in bk:
+                            new_content.append(block)
+                    inner["content"] = new_content
+
+                # Clear tool_results
+                if "tool_results" in inner:
+                    inner["tool_results"] = {}
+                    stats["tool_results_cleared"] += 1
+                inner.pop("ToolResults", None)
+                inner.pop("reasoning_details", None)
+
+                cleaned[key] = inner
+            else:
+                cleaned[key] = value
+
+        cleaned_msgs.append(cleaned)
+
+    thread_data["messages"] = cleaned_msgs
+
+    # Recompress and save
+    text = json_lib.dumps(thread_data, ensure_ascii=False, separators=(",", ":"))
+    cctx = zstandard.ZstdCompressor(level=3)
+    compressed = cctx.compress(text.encode("utf-8"))
+
+    t_conn = sqlite3.connect(str(threads_db))
+    t_cur = t_conn.cursor()
+    t_cur.execute("UPDATE threads SET data = ? WHERE id = ?", (compressed, thread_id))
+    t_conn.commit()
+    affected = t_cur.rowcount
+    t_conn.close()
+
+    stats["saved"] = affected > 0
+    return stats

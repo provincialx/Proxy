@@ -27,7 +27,7 @@ from app.utils import strip_thinking
 
 # ── Конфигурация ────────────────────────────────────────────
 
-DEFAULT_CACHEPROXY_URL = "http://127.0.0.1:8100"
+DEFAULT_CACHEPROXY_URL = "http://127.0.0.1:8200"
 DEFAULT_POLL_INTERVAL = 60
 SENT_MARKERS_FILE = Path.home() / ".cacheproxy_sent_markers.json"
 
@@ -175,7 +175,7 @@ def _parse_messages(thread_data: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def get_available_projects() -> list[str]:
-    """Scan archived threads and return distinct project names."""
+    """Scan all threads and return distinct project names."""
     sidebar_db, _ = _db_paths()
     if not sidebar_db:
         return []
@@ -183,7 +183,7 @@ def get_available_projects() -> list[str]:
     s_conn = sqlite3.connect(f"file:{sidebar_db}?mode=ro", uri=True)
     s_conn.row_factory = sqlite3.Row
     s_cur = s_conn.cursor()
-    s_cur.execute("SELECT folder_paths FROM sidebar_threads WHERE archived = 1")
+    s_cur.execute("SELECT folder_paths FROM sidebar_threads")
     projects: set[str] = set()
     for r in s_cur.fetchall():
         folder_paths = (r["folder_paths"] or "").strip()
@@ -196,9 +196,9 @@ def get_available_projects() -> list[str]:
     return sorted(projects)
 
 
-def _get_archived_threads(projects: list[str] | None = None) -> list[dict[str, Any]]:
+def _get_threads(projects: list[str] | None = None) -> list[dict[str, Any]]:
     """
-    Read archived threads from Zed's SQLite databases.
+    Read threads from Zed's SQLite databases.
 
     Returns list of dicts with:
       - id: thread UUID (from sidebar_threads.session_id)
@@ -212,18 +212,18 @@ def _get_archived_threads(projects: list[str] | None = None) -> list[dict[str, A
         print("  ⚠ Zed databases not found")
         return []
 
-    # ── 1. Get archived threads from sidebar ──
+    # ── 1. Get all threads from sidebar ──
     s_conn = sqlite3.connect(f"file:{sidebar_db}?mode=ro", uri=True)
     s_conn.row_factory = sqlite3.Row
     s_cur = s_conn.cursor()
     s_cur.execute(
         "SELECT session_id, title, folder_paths, folder_paths_order, archived, "
         "created_at, updated_at, interacted_at "
-        "FROM sidebar_threads WHERE archived = 1"
+        "FROM sidebar_threads"
     )
     sidebar_rows = [dict(r) for r in s_cur.fetchall()]
     s_conn.close()
-    print(f"  Archived threads in sidebar: {len(sidebar_rows)}")
+    print(f"  Threads in sidebar: {len(sidebar_rows)}")
 
     if not sidebar_rows:
         return []
@@ -333,7 +333,7 @@ def _send_to_cacheproxy(
                     print(f"    ☠ Send message failed: {r.status_code}")
                     return False
                 # Small delay to not hammer the API
-                time.sleep(0.05)
+                time.sleep(0.005)
 
             # 3. Archive session (consolidates into context for search)
             r = client.post(f"/sessions/{sid}/archive")
@@ -376,21 +376,23 @@ def cmd_discover(args: argparse.Namespace) -> None:
 def run_sync(
     url: str = DEFAULT_CACHEPROXY_URL,
     projects: list[str] | None = None,
+    check_health: bool = True,
 ) -> dict:
     """Run one sync pass. Returns {synced: int, total: int, errors: list}."""
     result: dict = {"synced": 0, "total": 0, "errors": []}
 
-    try:
-        r = httpx.get(f"{url}/health", timeout=5)
-        if r.status_code != 200:
-            result["errors"].append("CacheProxy not healthy")
+    if check_health:
+        try:
+            r = httpx.get(f"{url}/health", timeout=5)
+            if r.status_code != 200:
+                result["errors"].append("CacheProxy not healthy")
+                return result
+        except Exception as e:
+            result["errors"].append(f"CacheProxy not reachable: {e}")
             return result
-    except Exception as e:
-        result["errors"].append(f"CacheProxy not reachable: {e}")
-        return result
 
     sent = _load_sent_cache()
-    threads = _get_archived_threads(projects)
+    threads = _get_threads(projects)
     result["total"] = len(threads)
 
     for t in threads:

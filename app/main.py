@@ -1,3 +1,6 @@
+import sys
+sys.path.insert(0, 'D:/Projects/CacheProxy')
+
 """CacheProxy — FastAPI приложение для кеширования чатов в PostgreSQL."""
 
 from contextlib import asynccontextmanager
@@ -21,9 +24,9 @@ async def lifespan(app: FastAPI):
         Base.metadata.create_all(bind=engine)
         db_ok = True
     except Exception as e:
-        print(f"⚠ PostgreSQL недоступен: {e}")
+        print(f"[WARN] PostgreSQL недоступен: {e}")
         print(
-            "⚠ Сервер работает в режиме 'только локальные файлы' (threads.db, db.sqlite)"
+            "[WARN] Сервер работает в режиме 'только локальные файлы' (threads.db, db.sqlite)"
         )
 
     if db_ok:
@@ -68,13 +71,14 @@ async def lifespan(app: FastAPI):
         try:
             start_archiver()
         except Exception as e:
-            print(f"⚠ Archiver start failed: {e}")
+            print(f"[WARN] Archiver start failed: {e}")
 
     # Auto-open browser
     try:
         import webbrowser
 
-        webbrowser.open("http://127.0.0.1:8100/")
+        url = f"http://127.0.0.1:{settings.app_port}/"
+        webbrowser.open(url)
     except Exception:
         pass
 
