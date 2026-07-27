@@ -119,6 +119,12 @@ def index():
     return FileResponse(Path(__file__).parent / "static" / "index.html")
 
 
+@app.get("/favicon.ico")
+def favicon():
+    """Serve favicon."""
+    return FileResponse(Path(__file__).parent / "static" / "favicon.ico")
+
+
 @app.get("/health")
 def health():
     """Health check."""
