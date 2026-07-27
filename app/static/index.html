@@ -528,7 +528,7 @@
                     'admin.resummarize_skip': '⚠️ Processed {processed}, but no sessions have messages',
                     'admin.resummarize_errors': ' ({count} errors)',
                     'admin.resummarizing_btn': '⏳ Resummarize...',
-                    'admin.db_reset_confirm1': '🗑️ ARE YOU SURE? This will delete ALL sessions, messages and contexts from the database.\n\nThe embedding model (.model_cache) will also be deleted.',
+                    'admin.db_reset_confirm1': 'This will delete ALL sessions from the database.\n\nChats will be restored from Zed on the next Sync.\n\nProceed?',
                     'admin.db_reset_confirm2': '⚠️ FINAL WARNING! This action CANNOT be undone!\n\nType \"confirm\" to proceed:',
                     'admin.db_reset_yes': 'confirm',
                     'admin.db_reset_done': '✅ DB cleaned: {sessions} sessions, {messages} messages, {contexts} contexts',
@@ -630,7 +630,7 @@
                     'admin.resummarize_skip': '⚠️ Обработано {processed}, но ни одна сессия не имеет сообщений',
                     'admin.resummarize_errors': ' ({count} ошибок)',
                     'admin.resummarizing_btn': '⏳ Ресаммари...',
-                    'admin.db_reset_confirm1': '🗑️ ВЫ УВЕРЕНЫ? Это удалит ВСЕ сессии, сообщения и контексты из базы данных.\n\nМодель эмбеддингов (.model_cache) тоже будет удалена.',
+                    'admin.db_reset_confirm1': 'Это удалит ВСЕ сессии из базы.\n\nЧаты восстановятся из Zed при следующей синхронизации.\n\nПродолжить?',
                     'admin.db_reset_confirm2': '⚠️ ПОСЛЕДНЕЕ ПРЕДУПРЕЖДЕНИЕ! Это действие НЕЛЬЗЯ отменить!\n\nВведите \"confirm\" чтобы продолжить:',
                     'admin.db_reset_yes': 'confirm',
                     'admin.db_reset_done': '✅ База очищена: {sessions} сессий, {messages} сообщений, {contexts} контекстов',
@@ -1037,10 +1037,6 @@
             async function resetDb() {
                 if (
                     !confirm(__(`admin.db_reset_confirm1`))
-                )
-                    return;
-                if (
-                    !confirm(__(`admin.db_reset_confirm2`))
                 )
                     return;
 
