@@ -551,6 +551,8 @@
                     'junk.no_title': '(no title)',
                     'junk.note_cacheproxy': '⏳ Not synced to CacheProxy',
                     'junk.msgs': '{count} msgs',
+                    'junk.refresh': '🔄 Refresh',
+                    'junk.warning': '⚠️ RAW data from Zed, including Thinking, ToolUse and other junk',
                     'threads.title': '🧵 sidebar_threads (db.sqlite)',
                     'threads.filter': 'Filter by title/folder/project',
                     'threads.refresh': '🔄 Refresh',
@@ -651,6 +653,8 @@
                     'junk.no_title': '(без названия)',
                     'junk.note_cacheproxy': '⏳ В CacheProxy отсутствует',
                     'junk.msgs': '{count} сообщений',
+                    'junk.refresh': '🔄 Обновить',
+                    'junk.warning': '⚠️ Показаны СЫРЫЕ данные из Zed, включая Thinking, ToolUse и прочий мусор',
                     'threads.title': '🧵 sidebar_threads (db.sqlite)',
                     'threads.filter': 'Фильтр по title/folder/project',
                     'threads.refresh': '🔄 Обновить',
@@ -1375,10 +1379,10 @@
     <div style="font-size:13px;color:#8b949e;margin-bottom:12px">
       <strong>${escapeHtml(t.title || __('junk.no_title'))}</strong>
       <span class="badge project">${escapeHtml(t.project)}</span>
-      · ${t.message_count} сырых сообщ. · ${formatBytes(t.compressed_bytes)}
+      · ${__('junk.raw_msgs', { count: t.message_count })} · ${formatBytes(t.compressed_bytes)}
       ${t.error ? `· 💥 ${escapeHtml(t.error)}` : ""}
     </div>
-    <div style="font-size:12px;color:#8b949e;margin-bottom:12px">⚠️ Показаны СЫРЫЕ данные из Zed, включая Thinking, ToolUse и прочий мусор</div>
+    <div style="font-size:12px;color:#8b949e;margin-bottom:12px">${__('junk.warning')}</div>
     <button onclick="cleanJunkThread('${sid}')" style="font-size:13px;margin-bottom:12px">${__('junk.clean_btn')}</button>
     <span id="junk-clean-status-${sid}" style="font-size:12px;color:#8b949e;margin-left:8px"></span>`;
 
