@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#58a6ff"/>
+      <stop offset="100%" style="stop-color:#1f6feb"/>
+    </linearGradient>
+  </defs>
+  <!-- Left hemisphere -->
+  <ellipse cx="38" cy="52" rx="22" ry="28" fill="url(#bg)"/>
+  <!-- Right hemisphere -->
+  <ellipse cx="62" cy="52" rx="22" ry="28" fill="url(#bg)"/>
+  <!-- Center fold -->
+  <path d="M45 28 Q50 45 45 65 Q50 72 55 65 Q50 45 55 28" fill="#0d1117"/>
+  <!-- Top connection -->
+  <ellipse cx="50" cy="32" rx="18" ry="12" fill="url(#bg)"/>
+  <!-- Bottom stem -->
+  <ellipse cx="50" cy="72" rx="10" ry="8" fill="url(#bg)"/>
+  <!-- Left fold 1 -->
+  <path d="M20 42 Q24 46 20 50" stroke="#0d1117" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <!-- Left fold 2 -->
+  <path d="M18 54 Q22 58 18 62" stroke="#0d1117" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <!-- Right fold 1 -->
+  <path d="M80 42 Q76 46 80 50" stroke="#0d1117" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <!-- Right fold 2 -->
+  <path d="M82 54 Q78 58 82 62" stroke="#0d1117" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <!-- Top fold left -->
+  <path d="M35 28 Q30 24 35 22" stroke="#0d1117" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <!-- Top fold right -->
+  <path d="M65 28 Q70 24 65 22" stroke="#0d1117" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+</svg>

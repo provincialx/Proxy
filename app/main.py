@@ -122,7 +122,16 @@ def index():
 @app.get("/favicon.ico")
 def favicon():
     """Serve favicon."""
+    fp = Path(__file__).parent / "static" / "favicon.svg"
+    if fp.exists():
+        return FileResponse(fp, media_type="image/svg+xml")
     return FileResponse(Path(__file__).parent / "static" / "favicon.ico")
+
+
+@app.get("/favicon.svg")
+def favicon_svg():
+    """Serve SVG favicon."""
+    return FileResponse(Path(__file__).parent / "static" / "favicon.svg", media_type="image/svg+xml")
 
 
 @app.get("/health")
