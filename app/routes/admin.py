@@ -342,7 +342,7 @@ def admin_resummarize(session_id: str | None = None):
     """
     db = SessionLocal()
     try:
-        q = db.query(Session).filter(Session.status == "archived")
+        q = db.query(Session).filter(Session.status == "active")
         if session_id:
             from uuid import UUID
 
@@ -922,12 +922,45 @@ def admin_sync_zed_thread(thread_id: str):
         raise HTTPException(status_code=500, detail=f"Sync failed: {e}")
 
 
+def _cleaned_to_view(cleaned_msgs: list) -> list[dict]:
+    """Convert cleaned messages to view format."""
+    result = []
+    for msg in cleaned_msgs:
+        if isinstance(msg, str):
+            if msg.strip():
+                result.append({"role": "user", "content": msg.strip(), "blocks": ["text"], "has_thinking": False})
+            continue
+        role_key = list(msg.keys())[0]
+        role_map = {"User": "user", "Agent": "assistant", "System": "system"}
+        role = role_map.get(role_key, "user")
+        blocks = msg[role_key].get("content", [])
+        texts = []
+        block_types = set()
+        has_thinking = False
+        for b in blocks:
+            if isinstance(b, dict):
+                key = list(b.keys())[0]
+                block_types.add(key)
+                if key == "Text":
+                    texts.append(b[key])
+                elif key == "Thinking":
+                    has_thinking = True
+                    texts.append(f"[Thinking] {b[key]}")
+        result.append({
+            "role": role,
+            "content": "\n".join(texts) if texts else "",
+            "blocks": list(block_types),
+            "has_thinking": has_thinking,
+        })
+    return result
+
+
 @router.post("/zed-threads/{thread_id}/clean")
 def admin_clean_zed_thread(thread_id: str):
-    """Clean a raw Zed thread — remove Thinking, ToolUse, Mention, Image, image_url blocks.
+    """Clean a raw Zed thread — remove Thinking, Mention, Image, image_url blocks.
 
+    Keeps ToolUse and ToolResults — they are essential for model context.
     Modifies the thread data IN the Zed SQLite database (threads.db).
-    Preserves Text blocks only. Clears tool_results and reasoning_details.
     """
     import json as json_lib
     import sqlite3
@@ -955,18 +988,17 @@ def admin_clean_zed_thread(thread_id: str):
         return False
 
     def _clean_blocks(blocks):
-        """Remove non-Text blocks, including image_url anywhere."""
+        """Remove Thinking/Mention/Image blocks, keep ToolUse + Text intact."""
         result = []
         for b in blocks:
             if not isinstance(b, dict):
                 continue
             bk = next(iter(b), "")
-            if "Thinking" in bk or "ToolUse" in bk or "Mention" in bk or "Image" in bk:
+            if "Thinking" in bk or "Mention" in bk or "Image" in bk:
                 continue
             if _contains_image_url(b):
                 continue
-            if "Text" in bk:
-                result.append(b)
+            result.append(b)
         return result
 
     # Read thread
@@ -996,11 +1028,9 @@ def admin_clean_zed_thread(thread_id: str):
     # Track stats
     stats = {
         "thinking_removed": 0,
-        "tooluse_removed": 0,
         "mention_removed": 0,
         "image_removed": 0,
         "image_url_removed": 0,
-        "tool_results_cleared": 0,
     }
 
     # Process messages
@@ -1025,7 +1055,7 @@ def admin_clean_zed_thread(thread_id: str):
                             stats["thinking_removed"] += 1
                             continue
                         if "ToolUse" in bk:
-                            stats["tooluse_removed"] += 1
+                            new_content.append(block)
                             continue
                         if "Mention" in bk:
                             stats["mention_removed"] += 1
@@ -1036,26 +1066,33 @@ def admin_clean_zed_thread(thread_id: str):
                         if _contains_image_url(block):
                             stats["image_url_removed"] += 1
                             continue
-                        if "Text" in bk:
-                            new_content.append(block)
+                        # Keep all other blocks
+                        new_content.append(block)
                     inner["content"] = new_content
 
-                # Clear tool_results
-                if "tool_results" in inner:
-                    inner["tool_results"] = {}
-                    stats["tool_results_cleared"] += 1
+                # Remove tool_results if content is empty (no tool_calls to pair with)
                 inner.pop("ToolResults", None)
                 inner.pop("reasoning_details", None)
+                if not new_content:
+                    inner.pop("tool_results", None)
 
                 cleaned[key] = inner
             else:
                 cleaned[key] = value
 
-        cleaned_msgs.append(cleaned)
+        # Skip messages with no content and no tool_results
+        has_content = any(
+            isinstance(v, dict) and v.get("content") for v in cleaned.values()
+        )
+        has_tool_results = any(
+            isinstance(v, dict) and v.get("tool_results") for v in cleaned.values()
+        )
+        if has_content or has_tool_results:
+            cleaned_msgs.append(cleaned)
 
     thread_data["messages"] = cleaned_msgs
 
-    # Recompress and save
+    # Recompress and save back to threads.db
     text = json_lib.dumps(thread_data, ensure_ascii=False, separators=(",", ":"))
     cctx = zstandard.ZstdCompressor(level=3)
     compressed = cctx.compress(text.encode("utf-8"))

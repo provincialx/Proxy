@@ -59,7 +59,7 @@ def create_message(body: MessageCreate, db: SASession = Depends(get_db)):
 def list_messages(
     session_id: UUID,
     skip: int = 0,
-    limit: int = 200,
+    limit: int = 10000,
     db: SASession = Depends(get_db),
 ):
     """Get all messages for a session, oldest first."""

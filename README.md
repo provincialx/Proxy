@@ -1,8 +1,8 @@
 # CacheProxy
 
-Прокси-сервис для кеширования контекста чатов в PostgreSQL с семантическим поиском.
+Прокси-сервис для кеширования контекста чатов из Zed в PostgreSQL с семантическим поиском.
 
-Хранит историю диалогов и позволяет находить релевантный контекст из предыдущих общений — чтобы новые чаты в Zed (или любом другом интерфейсе) видели всю нужную историю.
+Хранит историю диалогов и позволяет находить релевантный контекст из предыдущих общений.
 
 ---
 
@@ -10,11 +10,11 @@
 
 | Компонент | Технология |
 |-----------|-----------|
-| API | FastAPI (async-ready) |
+| API | FastAPI |
 | База данных | PostgreSQL 18 |
 | ORM | SQLAlchemy 2.0 |
 | Миграции | Alembic |
-| Эмбеддинги | fastembed + ONNX |
+| Эмбеддинги | fastembed + ONNX (опционально) |
 | Семантический поиск | Cosine similarity (numpy) + keyword ILIKE |
 | Синхронизация с Zed | sync_agent.py — чтение SQLite БД Zed |
 
@@ -22,419 +22,196 @@
 
 ## Архитектура
 
-### Компоненты
+Всё работает **локально на одном ПК** (Windows).
 
 ```
-┌───────────────────────────────────────────────────────────────┐
-│  Сервер (192.168.101.211)                                     │
-│  ┌──────────────┐    ┌────────────────────┐                   │
-│  │  PostgreSQL   │    │  CacheProxy API    │                   │
-│  │  (порт 5432)  │◄───│  uvicorn :8100     │                   │
-│  │  БД: proxy    │    │  FastAPI + SQLAlch.│                   │
-│  └──────────────┘    └────────┬───────────┘                   │
-│                               │                               │
-│                    ┌──────────▼───────────┐                   │
-│                    │  Web UI (index.html) │                   │
-│                    └──────────────────────┘                   │
-└───────────────────────────────────────────────────────────────┘
-         ▲                          ▲
-         │ HTTP API                  │ Браузер
-         │ (sync_agent, MCP)         │
-┌────────┴──────────────────────────┴───────────────────────────┐
-│  Клиент (ПК пользователя)                                     │
-│  ┌───────────────────┐    ┌──────────────────┐                │
-│  │  Zed (SQLite БД)  │    │  Веб-браузер     │                │
-│  │  sync_agent.py ───┼────│  http://...:8100 │                │
-│  └───────────────────┘    └──────────────────┘                │
-└───────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  Локальный ПК (Windows)                               │
+│  ┌──────────────┐    ┌────────────────────┐           │
+│  │  PostgreSQL   │    │  CacheProxy API    │           │
+│  │  (порт 5432)  │◄───│  uvicorn :8200     │           │
+│  │  БД: proxy    │    │  FastAPI + SQLAlch.│           │
+│  └──────────────┘    └────────┬───────────┘           │
+│                               │                       │
+│                    ┌──────────▼───────────┐           │
+│                    │  Web UI (index.html) │           │
+│                    └──────────────────────┘           │
+│         ▲                          ▲                  │
+│         │ HTTP API                  │ Браузер         │
+│         │ (sync_agent, MCP)         │                 │
+│  ┌──────┴───────────────────────────┴──────┐          │
+│  │  Zed (SQLite БД: threads.db + db.sqlite) │          │
+│  │  sync_agent.py — чтение и синхронизация  │          │
+│  └─────────────────────────────────────────┘          │
+└──────────────────────────────────────────────────────┘
 ```
-
-Сервер поднимается в локальной сети, клиент — ПК с Zed.
-Sync Agent всегда запускается **на клиенте** (там где Zed), потому что читает локальные SQLite базы.
-Веб-интерфейс открывается в браузере через адрес сервера.
 
 ### API
 
 ```
-POST /sessions                              — создать сессию чата
-GET  /sessions?project=...&status=...        — список сессий (фильтр по проекту и статусу)
-GET  /sessions/{id}                          — детали сессии
-POST /sessions/{id}/archive                  — архивировать сессию (+ консолидация в контекст)
-DELETE /sessions/{id}                        — удалить сессию
+POST   /sessions                          — создать сессию чата
+GET    /sessions?project=...&status=...    — список сессий
+GET    /sessions/{id}                      — детали сессии
+POST   /sessions/{id}/archive              — архивировать сессию
+DELETE /sessions/{id}                      — удалить сессию
 
-POST /messages                               — добавить сообщение (авто-сохранение контекста)
-GET  /messages/{session_id}                  — сообщения сессии
+POST   /messages                           — добавить сообщение
+GET    /messages/{session_id}?limit=10000   — сообщения сессии
 
-POST /context                                — сохранить контекст вручную (авто-эмбеддинг)
-GET  /context/search?query=...&project=...   — семантический поиск (с фильтром по проекту)
-DELETE /context/{id}                          — удалить контекст
+POST   /context                            — сохранить контекст вручную
+GET    /context/search?query=...           — семантический поиск
+DELETE /context/{id}                       — удалить контекст
 
-### Admin
+### Admin (префикс /admin)
+GET    /admin/projects                     — список проектов
+POST   /admin/sync?projects=...            — запустить синхронизацию
+POST   /admin/daemon/start?interval=60     — запустить демон
+POST   /admin/daemon/stop                  — остановить демон
+GET    /admin/daemon/status                — статус демона
+POST   /admin/db-reset                     — очистить БД и кеш
+GET    /admin/zed-threads                  — сырые треды из Zed
+GET    /admin/zed-threads/{id}/messages    — сырые сообщения треда
+POST   /admin/zed-threads/{id}/clean       — очистить тред от мусора
+POST   /admin/sanitize                     — удалить tool-сообщения
+POST   /admin/resummarize                  — ре-суммаризация
 ```
-GET  /admin/projects                         — список проектов из тредов Zed
-POST /admin/sync?projects=...                — запустить синхронизацию (с фильтром по проектам)
-POST /admin/daemon/start?interval=60         — запустить фоновый демон синхронизации
-POST /admin/daemon/stop                      — остановить демон
-GET  /admin/daemon/status                    — статус демона
-POST /admin/db-reset                         — очистить БД, кеш модели и sent-маркеры
-GET  /admin/zed-threads                      — сырые треды из Zed SQLite (вкладка Junk)
-GET  /admin/zed-threads/{id}/messages        — сырые сообщения треда (со всеми блоками)
-POST /admin/zed-threads/{id}/sync            — синхронизация одного треда из Junk в CacheProxy
-```
-
----
-
-## Модели данных
-
-### sessions
-| Поле | Тип | Описание |
-|------|-----|----------|
-| id | UUID | Первичный ключ |
-| title | VARCHAR(255) | Название сессии |
-| project | VARCHAR(255) | Идентификатор проекта (репозиторий/путь) |
-| status | VARCHAR(16) | `active` / `archived` |
-| archived_at | TIMESTAMPTZ | Дата архивации |
-| created_at | TIMESTAMPTZ | Дата создания |
-| updated_at | TIMESTAMPTZ | Дата обновления |
-| metadata | TEXT | JSON-метаданные |
-
-### messages
-| Поле | Тип | Описание |
-|------|-----|----------|
-| id | UUID | Первичный ключ |
-| session_id | UUID | FK → sessions.id |
-| role | VARCHAR(32) | user / assistant / system |
-| content | TEXT | Текст сообщения |
-| tokens_used | INTEGER | Примерное число токенов |
-| created_at | TIMESTAMPTZ | Дата создания |
-
-### contexts
-| Поле | Тип | Описание |
-|------|-----|----------|
-| id | UUID | Первичный ключ |
-| session_id | UUID | FK → sessions.id |
-| summary | VARCHAR(500) | Краткое описание |
-| content | TEXT | Текст контекста |
-| keywords | VARCHAR(500) | Ключевые слова |
-| embedding | DOUBLE PRECISION[] | 384-мерный вектор эмбеддинга |
-| token_count | INTEGER | Число токенов |
-| created_at | TIMESTAMPTZ | Дата создания |
-
----
-
-## Семантический поиск
-
-### Как работает
-1. **Короткие запросы (1-3 слова)** — keyword search через ILIKE с транслитерацией.
-   Термины расширяются через словарь: `сетап → setup, настройка, настройки` и т.д.
-   Релевантность считается по плотности совпадений (точное слово > частичное).
-2. **Длинные запросы (4+ слов)** — semantic search (fastembed + cosine similarity)
-   с keyword-бустом для точных совпадений.
-3. Результаты сортируются по убыванию score.
-
-### Модель
-- **`paraphrase-multilingual-MiniLM-L12-v2`** (384d)
-- Мультиязычная (~50 языков, включая русский)
-- ONNX Runtime (CPU), ~252MB на диске
-- Загрузка модели ~12с, эмбеддинг ~0.01с на текст
-
-### Словарь терминов (iRacing)
-| Запрос | Расширение |
-|--------|-----------|
-| сетап | setup, настройка, настройки |
-| подвеска | suspension, подвески |
-| шин, резин | tire, tyre |
-| двигател, мотор | engine |
-| аэродинамик, прижим | aero, downforce, крыло |
-
----
-
-## Архивация сессий
-
-При архивации (ручной или авто):
-1. Сессия помечается `status=archived`, проставляется `archived_at`
-2. Все сообщения консолидируются в один `Context` с эмбеддингом
-3. Архивная сессия находится через семантический поиск
-
-**Ручная** — `POST /sessions/{id}/archive` или кнопка в UI
-
-**Автоматическая** — фоновый поток каждые 60с проверяет сессии без обновлений >7 дней и архивирует их
-
-### LLM-суммаризация при архивации
-
-При архивации (ручной или авто) все сообщения сессии отправляются в LLM для суммаризации:
-
-1. LLM получает лог диалога (user + assistant)
-2. Возвращает JSON: `{title, summary, keywords}`
-3. В БД сохраняется **один** контекст с осмысленным саммари вместо десятков сырых сообщений
-
-**Настройка `.env`:**
-
-| Переменная | По умолчанию | Описание |
-|-----------|-------------|----------|
-| `LLM_API_KEY` | _(empty)_ | API-ключ OpenAI-совместимого провайдера |
-| `LLM_MODEL` | `gpt-4o-mini` | Модель для суммаризации |
-| `LLM_BASE_URL` | `https://api.openai.com/v1` | Базовый URL API |
-| `LLM_ENABLED` | `True` | Включить/выключить суммаризацию |
-
-Без `LLM_API_KEY` суммаризация не работает — архиватор падает на per-message контексты (как раньше).
-
----
-
-## Sync Agent — синхронизация с Zed
-
-`sync_agent.py` читает локальные SQLite базы Zed и отправляет архивированные треды в CacheProxy.
-
-### Откуда читает
-
-| База | Путь | Содержимое |
-|------|------|-----------|
-| sidebar | `%LOCALAPPDATA%\Zed\db\0-stable\db.sqlite` | Метаданные тредов, флаг `archived` |
-| threads | `%LOCALAPPDATA%\Zed\threads\threads.db` | Контент тредов (zstd-сжатый JSON) |
-
-### Как работает
-1. Находит треды в sidebar DB (по умолчанию только `archived=1`, можно все через `all_threads=True`)
-2. Достаёт контент из threads DB (распаковывает zstd)
-3. Парсит JSON — извлекает каждое сообщение с ролью (user/assistant)
-4. Создаёт сессию в CacheProxy
-5. Отправляет сообщения одно за другим
-6. Архивирует сессию в CacheProxy
-
-### Использование
-
-```bash
-# Показать схему БД Zed
-python sync_agent.py discover
-
-# Один проход — отправить все треды (текущая реализация — все, не только архивные)
-python sync_agent.py sync
-
-# Указать URL сервера (если не дефолтный)
-python sync_agent.py --url http://192.168.101.211:8100 sync
-
-# Фоновый режим — проверяет новые архивы каждые 60с
-python sync_agent.py daemon
-```
-
-### Программный вызов
-
-```python
-from sync_agent import run_sync, get_available_projects
-
-# Список проектов
-projects = get_available_projects()
-
-# Синхронизация всех тредов (все, не только архивные)
-result = run_sync(all_threads=True)
-
-# Синхронизация только выбранных проектов
-result = run_sync(projects=["CacheProxy", "iRacing-Analyzer"])
-# result = {synced: int, total: int, errors: list}
-```
-
-### Фильтрация контента
-
-При парсинге тредов автоматически отфильтровываются:
-- `<thinking>...</thinking>` — размышления модели
-- `{"Thinking": {...}}` — JSON-structured thinking
-- `[Tool: name] {...}` — вызовы инструментов
-- `{"Mention": {...}}` — упоминания файлов
-- `{"Image": {...}}` — блоки изображений
-
-Фильтрация применяется как в sync_agent, так и на уровне API (`app/utils.py`).
 
 ---
 
 ## Установка и запуск
 
-### Вариант 1: Всё на одном ПК (локальный запуск)
+### Требования
+- Windows 10+
+- PostgreSQL 18 (локально)
+- Python 3.11+
 
-```bash
-# Клонировать
-cd ~/Projects/CacheProxy
+### 1. Установить PostgreSQL
 
-# Создать виртуальное окружение
-python3 -m venv .venv
-source .venv/bin/activate
+Скачать с [postgresql.org](https://www.postgresql.org/download/windows/).
+При установке указать пароль для суперпользователя.
 
-# Установить зависимости
-pip install -r requirements.txt
-
-# Настроить .env
-cat > .env << 'EOF'
-db_host=localhost
-db_port=5432
-db_name=proxy
-db_user=proxyuser
-db_password=1
-app_host=0.0.0.0
-app_port=8100
-debug=false
-llm_enabled=false
-EOF
-
-# Применить миграции
-alembic upgrade head
-
-# Запустить
-PYTHONIOENCODING=utf-8 uvicorn app.main:app --host 0.0.0.0 --port 8100
+Создать БД и пользователя (через pgAdmin или psql):
+```sql
+CREATE USER proxyuser WITH PASSWORD '1';
+CREATE DATABASE proxy OWNER proxyuser;
+GRANT ALL PRIVILEGES ON DATABASE proxy TO proxyuser;
 ```
 
-### Вариант 2: Сервер + клиент (рекомендуется)
+### 2. Клонировать и настроить
 
-На сервере в локальной сети поднимается PostgreSQL + CacheProxy API.
-Клиент (ПК с Zed) синхронизирует треды через sync_agent и открывает веб-интерфейс.
+```powershell
+cd D:\Projects
+git clone <url> CacheProxy
+cd CacheProxy
 
-#### На сервере
-
-```bash
-# Установить PostgreSQL
-sudo apt-get install -y postgresql postgresql-contrib
-sudo systemctl start postgresql
-
-# Создать БД и пользователя
-sudo -u postgres psql -c "CREATE USER proxyuser WITH PASSWORD '1';"
-sudo -u postgres psql -c "CREATE DATABASE proxy OWNER proxyuser;"
-sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE proxy TO proxyuser;"
-
-# Залить проект и настроить
-cd ~/CacheProxy
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+# Виртуальное окружение
+python -m venv .venv
+.\.venv\Scripts\pip.exe install -r requirements.txt
 
 # Настроить .env
-cat > .env << 'EOF'
+@"
 db_host=localhost
 db_port=5432
 db_name=proxy
 db_user=proxyuser
 db_password=1
 app_host=0.0.0.0
-app_port=8100
+app_port=8200
 debug=false
 llm_enabled=false
-EOF
+"@ | Out-File -Encoding UTF8 .env
 
 # Миграции
-alembic upgrade head
-
-# Запустить (фоново)
-PYTHONIOENCODING=utf-8 nohup uvicorn app.main:app \
-  --host 0.0.0.0 --port 8100 > .server.log 2>&1 &
+.\.venv\Scripts\alembic.exe upgrade head
 ```
 
-#### На клиенте
+### 3. Запустить
 
-```bash
-cd ~/Projects/CacheProxy
-
-# Настроить URL сервера в sync_agent.py (строка DEFAULT_CACHEPROXY_URL)
-# DEFAULT_CACHEPROXY_URL = "http://192.168.101.211:8100"
-
-# Синхронизировать треды из Zed на сервер
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python sync_agent.py sync
-
-# Или в фоне (проверка каждые 60с)
-python sync_agent.py daemon
+```powershell
+cd D:\Projects\CacheProxy
+$env:PYTHONPATH = "D:\Projects\CacheProxy"
+.\.venv\Scripts\python.exe app\main.py
 ```
 
-### При первом запуске CacheProxy
-1. Автоматически создаются таблицы (lifespan)
-2. Добавляются колонки `status` и `archived_at` в существующую таблицу sessions
-3. Скачивается и кэшируется модель эмбеддингов (~252MB) — потребуется ~10-15с
-4. Стартует фоновый авто-архиватор
-5. API готов к работе
+Сервер запустится на `http://127.0.0.1:8200/`, браузер откроется автоматически.
 
-### Миграции
+### 4. Синхронизация чатов из Zed
 
-```bash
-alembic upgrade head      # применить
-# alembic downgrade -1    # откатить
-# alembic revision --autogenerate -m "описание"  # создать новую
-```
+После запуска нажми **🔄 Sync выбранные** на вкладке **Сессии**.
+
+Синхронизация:
+- Читает треды из `%LOCALAPPDATA%/Zed/threads/threads.db`
+- Сравнивает количество сообщений с уже существующей сессией в PostgreSQL
+- Досылает **только новые сообщения** (инкрементально), без удаления и пересоздания
+- Если сессии ещё нет — создаёт и отправляет все сообщения
+- Архивирует сессию после синхронизации
 
 ---
 
 ## Веб-интерфейс
 
-После запуска браузер открывается автоматически. Две вкладки:
+После запуска браузер открывается на `http://127.0.0.1:8200/`.
 
 | Вкладка | Что делает |
 |---------|-----------|
-| 🔍 **Поиск** | Семантический поиск по всем контекстам, фильтр по проекту, удаление лишнего ✕ |
-| 📁 **Сессии** (дефолтная) | Список диалогов с фильтром (проект + статус), архивация, удаление. Панель **Управление**: синхронизация с Zed, демон, DB Reset |
+| 📁 **Сессии** | Список диалогов из PostgreSQL. Фильтр по проекту/статусу. Архивация, удаление. Панель управления: 🔄 Sync, 🧹 Clean, ▶️ Демон, 📝 Ресаммари, 🗑️ DB Reset |
+| 🗑️ **Junk** | Сырые треды из threads.db без фильтрации (Thinking, ToolUse, Image и т.д.). Кнопка **🧹 Очистить от мусора** — удаляет Thinking/Image/Mention блоки, чистит tool_results |
+| 🧵 **Threads** | Таблица sidebar_threads из db.sqlite. Сортировка, фильтр, удаление записей |
+| 🔍 **Поиск** | Семантический поиск по контекстам |
 
-### API документация
+### Сообщения
 
-- **Swagger UI**: http://192.168.101.211:8100/docs
-- **ReDoc**: http://192.168.101.211:8100/redoc
+- В обеих вкладках (Сессии и Junk) сообщения отображаются **от новых к старым**
+- Лимит сообщений — **10000** (полный чат)
+- В Сессиях — только чистый текст (Thinking/ToolUse отфильтрованы)
+- В Junk — полные данные, все блоки сохранены
 
-### Health check
+### Кнопки управления
 
-```bash
-curl http://192.168.101.211:8100/health
-# → {"status":"ok","service":"CacheProxy","version":"0.1.0"}
-```
+- **🔄 Sync выбранные** — инкрементальная синхронизация: досылает только новые сообщения в PostgreSQL
+- **🧹 Очистить выбранные** — удаляет мусор (Thinking, Mention, Image) из threads.db для выбранных проектов
+- **▶️ Запустить демона** — фоновый демон, синхронизирует каждые 60с
+- **📝 Ресаммари** — пересоздаёт контексты для **активных** сессий (склейка всего диалога в один Context для поиска)
+- **🗑️ DB Reset** — полная очистка PostgreSQL (sessions, messages, contexts) и model cache. Список проектов не пропадает (читается из Zed)
 
-### Пример: отправить сообщение — контекст сохранится автоматом
+---
 
-```python
-import httpx
+## Фильтрация контента
 
-base = "http://192.168.101.211:8100"
+### При синхронизации (sync_agent.py)
+При парсинге треда в `_parse_messages()`:
+- **Text** — сохраняется
+- **ToolUse** — сохраняется (нужен для API-контракта DeepSeek)
+- **ToolResult** — пропускается (может ломать API DeepSeek без tool_calls)
+- **Thinking** — пропускается (шум для поиска)
+- **Mention** — пропускается (шум)
+- **Image** — пропускается (шум)
 
-# 1. Создать сессию с проектом
-sid = httpx.post(f"{base}/sessions", json={
-    "title": "Настройки подвески",
-    "project": "iRacing-Analyzer"
-}).json()["id"]
+### При ручной очистке в Junk
+Кнопка **🧹 Очистить от мусора** полностью удаляет блоки Thinking, Mention, Image, image_url из threads.db. ToolUse сохраняется (необходим для API). tool_results обнуляются если контент пустой.
 
-# 2. Отправить сообщение → контекст + эмбеддинг сохранятся автоматически
-httpx.post(f"{base}/messages", json={
-    "session_id": sid,
-    "role": "user",
-    "content": "Для трассы Спа нужны мягкие передние амортизаторы"
-})
-
-# 3. Семантический поиск (можно с фильтром по проекту)
-httpx.get(f"{base}/context/search", params={
-    "query": "бельгийская трасса подвеска",
-    "project": "iRacing-Analyzer",
-    "limit": 5
-}).json()
-```
-
-### Удаление
-
-```powershell
-DELETE /sessions/{id}    # удалить сессию со всем содержимым
-DELETE /context/{id}     # удалить конкретный контекст
-```
+Пустые сообщения (без контента и tool_results) пропускаются — не засоряют БД.
 
 ---
 
 ## MCP-сервер (Model Context Protocol)
 
 MCP-сервер предоставляет AI-ассистенту Zed прямой доступ к контексту из PostgreSQL.
-Запускается как отдельный процесс и общается через stdio по протоколу MCP.
+Запускается как отдельный процесс, общается через stdio по протоколу MCP.
 
 ### Инструменты
 
 | Инструмент | Описание | Параметры |
 |-----------|----------|----------|
-| `search_context` | Гибридный поиск. Возвращает превью (сниппет 250 символов + метаданные) | `query` (req), `project`, `limit` (def: 5) |
+| `search_context` | Гибридный поиск (ILIKE + cosine similarity) | `query` (req), `project`, `limit` |
 | `get_context_detail` | Полный контент контекста по ID | `context_id` (req) |
-| `get_session` | Детали сессии + сниппеты сообщений (200 символов) | `session_id` (req) |
-| `list_sessions` | Список сессий (без контента сообщений) | `project`, `status`, `limit` (def: 20) |
-| `get_recent_contexts` | Последние контексты без поиска. Превью | `project`, `limit` (def: 5) |
+| `get_session` | Детали сессии + сниппеты сообщений | `session_id` (req) |
+| `list_sessions` | Список сессий (без контента) | `project`, `status`, `limit` |
+| `get_recent_contexts` | Последние контексты без поиска | `project`, `limit` |
 
 ### Настройка в Zed
 
-Добавь в `~/.config/zed/settings.json` (или `settings.json` проекта):
+В `~/.config/zed/settings.json`:
 
 ```json
 {
@@ -447,26 +224,10 @@ MCP-сервер предоставляет AI-ассистенту Zed прям
 }
 ```
 
-После этого Zed-агент (я) сможет вызывать инструменты CacheProxy:
-- Искать контекст из прошлых диалогов по проекту
-- Получать сообщения конкретной сессии
-- Смотреть последние обсуждения без поиска
-
 ### Требования
-
 - Установлен пакет `mcp` (`pip install mcp`)
+- В `.env` должен быть указан `DB_HOST` (localhost для локальной БД или IP сервера)
 - CacheProxy не обязательно должен быть запущен — MCP-сервер читает БД напрямую
-- Модель эмбеддингов загружается при первом поиске (~252MB, ~12с)
-- В конфиге Zed **обязательно** указывать полный путь к `python.exe` из `.venv`,
-  иначе Zed использует системный Python без пакета `mcp`
-
-### Проверка
-
-```powershell
-# Активировать venv, запустить MCP-сервер вручную (для теста)
-python mcp_server.py
-# Сервер ждёт JSON-RPC по stdio — ничего не выведет до первого запроса
-```
 
 ---
 
@@ -477,120 +238,82 @@ python mcp_server.py
 ```
 CacheProxy/
 ├── app/
-│   ├── __init__.py
-│   ├── main.py              # FastAPI app + lifespan (миграции, авто-архиватор)
-│   ├── config.py            # pydantic-settings
+│   ├── main.py              # FastAPI + lifespan (миграции, авто-архиватор)
+│   ├── config.py            # pydantic-settings (из .env)
 │   ├── database.py          # engine + session
 │   ├── schemas.py           # Pydantic модели
 │   ├── models/
-│   │   ├── __init__.py
-│   │   ├── session.py       # SQLAlchemy: sessions (+ status, archived_at)
+│   │   ├── session.py       # SQLAlchemy: sessions
 │   │   ├── message.py       # SQLAlchemy: messages
 │   │   └── context.py       # SQLAlchemy: contexts
 │   ├── routes/
-│   │   ├── __init__.py
-│   │   ├── sessions.py      # CRUD + archive endpoint
-│   │   ├── messages.py      # CRUD сообщений
-│   │   ├── context.py       # CRUD + гибридный поиск (keyword + semantic)
-│   │   └── admin.py         # Управление: sync, daemon, db-reset
-│   └── services/
-│       ├── __init__.py      # EmbeddingService
-│       └── archiver.py      # Фоновый авто-архиватор
-├── sync_agent.py            # Синхронизация архивных тредов из Zed
-├── app/utils.py             # Фильтрация контента (thinking, mentions, tool calls)
+│   │   ├── sessions.py      # CRUD + archive
+│   │   ├── messages.py      # CRUD сообщений (лимит 10000)
+│   │   ├── context.py       # CRUD + гибридный поиск
+│   │   └── admin.py         # Sync, daemon, db-reset, Junk, очистка
+│   ├── services/
+│   │   ├── __init__.py      # EmbeddingService
+│   │   ├── archiver.py      # Фоновый авто-архиватор
+│   │   └── summarizer.py    # LLM-суммаризация
+│   └── static/
+│       └── index.html       # Веб-интерфейс
+├── sync_agent.py            # Синхронизация тредов из Zed
+├── mcp_server.py            # MCP-сервер для Zed
 ├── alembic/                 # Миграции
-├── alembic.ini
 ├── .env                     # Конфигурация
 └── requirements.txt
 ```
 
----
+### Sync Agent
 
-## Roadmap
+`sync_agent.py` работает на клиенте (там где Zed).
 
-- [x] База данных (PostgreSQL + SQLAlchemy)
-- [x] CRUD для сессий, сообщений, контекста
-- [x] Семантический поиск (fastembed + cosine similarity)
-- [x] Веб-интерфейс (чат, поиск, управление сессиями)
-- [x] Авто-сохранение контекста при отправке сообщения
-- [x] Фильтрация по проекту
-- [x] Удаление сессий и контекстов из UI
-- [x] Просмотр последних контекстов без поиска
-- [x] Предзагрузка модели эмбеддингов при старте
-- [x] Graceful degradation при ошибках эмбеддинга
-- [x] Гибридный поиск (keyword ILIKE + semantic)
-- [x] Архивация сессий (ручная + авто-архиватор)
-- [x] Sync Agent — выгрузка архивных тредов из Zed
-- [x] Фильтрация мусора (thinking, mentions, images, tool calls)
-- [x] Admin API — sync, daemon, db-reset, выбор проектов
-- [x] Авто-открытие браузера при старте
-- [x] MCP-сервер для интеграции с AI ассистентом Zed
-- [x] Авто-суммаризация контекста через LLM
-- [ ] Batch-эмбеддинг для больших объёмов
+**Логика:**
+1. Читает треды из `sidebar_threads` (db.sqlite) и контент из `threads` (threads.db)
+2. Парсит JSON, извлекает сообщения, фильтрует мусор
+3. Проверяет, существует ли уже сессия в PostgreSQL (по title+project)
+4. Если сессия есть — сравнивает количество сообщений. Если в threads.db больше — досылает только новые
+5. Если сессии нет — создаёт и отправляет все сообщения
+6. Архивирует сессию
 
----
+**Важно:** Sync **не пишет** в threads.db — только читает. Для очистки от мусора есть отдельная кнопка **🧹 Очистить выбранные**.
 
-## Changelog
+**Вызов:**
+```python
+from sync_agent import run_sync
+result = run_sync()  # {synced: int, total: int, errors: list}
+```
 
-### 2026-06-23
-
-#### Добавлено
-- **Серверный деплой** — проект развёрнут на `192.168.101.211`:
-  - PostgreSQL 18, CacheProxy API, Web UI — всё на одном сервере в локальной сети
-  - Клиент (ПК с Zed) только запускает sync_agent и открывает браузер
-- **README обновлён** — два варианта установки: локальный и сервер+клиент
-- **`sync_agent.py`**: параметр `all_threads=True` — синхронизация всех тредов, не только архивных
-- **SSH-доступ** к серверу через ключ, NOPASSWD sudo
-
-### 2026-06-18
-
-#### Добавлено
-- **LLM-суммаризация контекста** — `app/services/summarizer.py`:
-  - При архивации сессии все сообщения прогоняются через LLM (OpenAI-compatible API)
-  - Результат: 1 контекст с осмысленным заголовком, саммари и ключевыми словами
-  - Graceful degradation: если LLM недоступен — fallback на per-message контексты
-- **`POST /admin/resummarize`** — ре-суммаризация существующих архивных сессий
-- **Настройки `.env`:** `LLM_API_KEY`, `LLM_MODEL`, `LLM_BASE_URL`, `LLM_ENABLED`
-
-### 2026-06-17
-
-#### Добавлено
-- **Admin API** — эндпоинты `/admin/sync`, `/admin/daemon/*`, `/admin/db-reset`, `/admin/projects`
-- **UI: панель управления** — выбор проектов для синхронизации, запуск/остановка демона, DB Reset с защитой от дурака
-- **UI: вкладка «Сессии» по дефолту**, вкладка «Чат» удалена
-- **Фильтрация контента** — `strip_thinking()` в `app/utils.py`:
-  - XML `<thinking>...</thinking>`
-  - JSON `{"Thinking": {...}}`, `{"Mention": {...}}`, `{"Image": {...}}`
-  - Tool calls `[Tool: name] {...}`
-- **`sync_agent.py`**: программный API (`run_sync()`, `get_available_projects()`), фильтр по проектам, пропуск ToolUse/Thinking/Mention/Image при парсинге
-- **`/admin/db-reset`** — очищает БД + model cache + sent-маркеры
-- **Авто-открытие браузера** при старте `http://127.0.0.1:8100`
-
-#### Добавлено
-- **Sync Agent** (`sync_agent.py`) — чтение архивированных тредов из SQLite БД Zed
-  (sidebar `0-stable/db.sqlite` + контент `threads/threads.db` с zstd-распаковкой)
-- **Архивация сессий** — `status`/`archived_at` поля, `POST /sessions/{id}/archive`,
-  кнопка в UI, фильтр `?status=active|archived`
-- **Фоновый авто-архиватор** — каждые 60с проверяет сессии без обновлений >7 дней
-- **Гибридный поиск** — для коротких запросов (1-3 слова) keyword ILIKE,
-  для длинных semantic + keyword boost. Словарь терминов iRacing.
-- **Legacy-миграция** — `ALTER TABLE` для существующих БД при старте
-
-#### Исправлено
-- **Модель эмбеддингов загружалась при первом запросе** (10-15с).
-  Теперь предзагружается в `lifespan` при старте сервера.
-- **Модель кешировалась во временную папку** `%TEMP%\zed-agent-terminal-*\fastembed_cache`,
-  которая очищается между сессиями. Теперь кеш в `app/.model_cache` — постоянный.
-- **При ошибке эмбеддинга сообщение не сохранялось**.
-  Теперь сообщение сохраняется в любом случае, эмбеддинг опционален.
-- **Два uvicorn-процесса на один порт** — убивали друг друга.
-- **`[user]`/`[assistant]` префикс в embedded контенте** — шумел в эмбеддинге.
-  Теперь эмбеддится чистый текст сообщения.
-- **Короткие запросы искали мусор** — семантическая модель не работает на одном слове.
-  Теперь keyword search для коротких запросов.
+**Демон:**
+```bash
+python sync_agent.py daemon --interval 60
+```
 
 ---
 
-## Лицензия
+## .env
 
-MIT
+```
+db_host=localhost
+db_port=5432
+db_name=proxy
+db_user=proxyuser
+db_password=1
+app_host=0.0.0.0
+app_port=8200
+debug=false
+
+# LLM-суммаризация (опционально)
+llm_api_key=
+llm_base_url=https://api.openai.com/v1
+llm_model=gpt-4o-mini
+llm_enabled=false
+```
+
+---
+
+## Известные ограничения
+
+- **fastembed** не установлен — семантический поиск (`search_context`) не работает. Установка: `.\.venv\Scripts\pip.exe install fastembed`
+- **LLM-суммаризация** требует API-ключ (OpenAI-совместимый). Без ключа архивация работает без суммаризации
+- После восстановления threads.db из бэкапа может потребоваться полная пересинхронизация

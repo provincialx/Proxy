@@ -30,3 +30,4 @@ Thumbs.db
 *.sqlite
 *.bin
 server.log
+nohup.out

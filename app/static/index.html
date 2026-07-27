@@ -385,6 +385,9 @@
                         <button id="btn-sync" onclick="runSync()">
                             🔄 Sync выбранные
                         </button>
+                        <button id="btn-clean" onclick="cleanSelected()">
+                            🧹 Очистить выбранные
+                        </button>
                         <button id="btn-daemon" onclick="toggleDaemon()">
                             ▶️ Демон
                         </button>
@@ -651,7 +654,7 @@
                     if (r2.errors?.length) {
                         log(
                             $("admin-log"),
-                            `⚠️ ${r2.errors.length} ошибок`,
+                            `⚠️ ${r2.errors.length} ошибок: ${r2.errors.join("; ")}`,
                             "error",
                         );
                     }
@@ -662,6 +665,61 @@
                 } finally {
                     btn.disabled = false;
                     btn.textContent = "🔄 Sync выбранные";
+                }
+            }
+
+            async function cleanSelected() {
+                const btn = $("btn-clean");
+                const selected = getSelectedProjects();
+
+                if (selected.length === 0 && availableProjects.length > 0) {
+                    log($("admin-log"), "⚠️ Выбери хотя бы один проект", "error");
+                    return;
+                }
+
+                btn.disabled = true;
+                btn.textContent = "⏳ Очистка...";
+                log($("admin-log"), "🧹 Очистка выбранных проектов...", "info");
+
+                try {
+                    const r = await fetch(`${BASE}/admin/zed-threads`);
+                    const data = await r.json();
+                    let projectFilter = selected.length > 0 ? selected : availableProjects;
+                    let threads = data.threads.filter(t => projectFilter.includes(t.project));
+
+                    let totalStats = { thinking_removed: 0, tooluse_removed: 0, mention_removed: 0, image_removed: 0 };
+                    let cleaned = 0;
+                    let errors = [];
+
+                    for (const t of threads) {
+                        try {
+                            const r2 = await fetch(`${BASE}/admin/zed-threads/${t.id}/clean`, { method: "POST" });
+                            if (r2.ok) {
+                                const stats = await r2.json();
+                                totalStats.thinking_removed += stats.thinking_removed || 0;
+                                totalStats.tooluse_removed += stats.tooluse_removed || 0;
+                                totalStats.mention_removed += stats.mention_removed || 0;
+                                totalStats.image_removed += stats.image_removed || 0;
+                                cleaned++;
+                            } else {
+                                errors.push(t.title);
+                            }
+                        } catch (e) {
+                            errors.push(t.title);
+                        }
+                    }
+
+                    log($("admin-log"),
+                        `✅ Очищено ${cleaned}/${threads.length} тредов: -${totalStats.thinking_removed}🤔 -${totalStats.tooluse_removed}🔧 -${totalStats.mention_removed}🔗 -${totalStats.image_removed}🖼️`,
+                        "success");
+                    if (errors.length) {
+                        log($("admin-log"), `⚠️ Ошибок: ${errors.length} (${errors.join(", ")})`, "error");
+                    }
+                } catch (e) {
+                    log($("admin-log"), `❌ Ошибка: ${e.message}`, "error");
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = "🧹 Очистить выбранные";
                 }
             }
 
@@ -696,7 +754,7 @@
                 const orig = btn.innerHTML;
                 btn.disabled = true;
                 btn.innerHTML = "⏳ Ресаммари...";
-                log(logEl, "Суммаризация архивных сессий...", "info");
+                log(logEl, "Суммаризация активных сессий...", "info");
 
                 try {
                     const r = await fetch(`${BASE}/admin/resummarize`, {
@@ -946,7 +1004,7 @@
             }
 
             async function showSession(sid) {
-                const r = await fetch(`${BASE}/messages/${sid}?limit=100`);
+                const r = await fetch(`${BASE}/messages/${sid}?limit=10000`);
                 const msgs = await r.json();
                 const container = $("sessions-list");
 
@@ -1101,22 +1159,6 @@
                         const msgs = data.messages;
                         html += `<div style="font-size:13px;color:#8b949e;margin-bottom:12px">Сырых сообщений из Zed: ${msgs.length}</div>`;
 
-                        // Check if synced in CacheProxy too
-                        try {
-                            const r2 = await fetch(
-                                `${BASE}/messages/${sid}?limit=1`,
-                            );
-                            if (r2.ok) {
-                                html += `<div style="font-size:13px;color:#2ea043;margin-bottom:12px">✅ Этот тред есть в CacheProxy (с фильтрацией)</div>`;
-                            } else {
-                                html += `<div class="result-item">
-                                  <div class="content" style="color:#8b949e;margin-bottom:8px">⏳ В CacheProxy отсутствует</div>
-                                  <button onclick="syncJunkThread('${sid}')" style="font-size:13px">📥 Синхронизировать в CacheProxy</button>
-                                  <span id="junk-sync-status-${sid}" style="font-size:12px;color:#8b949e;margin-left:8px"></span>
-                                </div>`;
-                            }
-                        } catch (e) {}
-
                         // Re-fetch messages after potential clean
                         const msgList = msgs;
                         msgs.slice().reverse().forEach((m, i) => {
@@ -1133,13 +1175,6 @@
         <div class="content" style="${m.has_thinking ? "border-left:3px solid #d29922;padding-left:8px" : ""}">${escapeHtml(m.content)}</div>
       </div>`;
                         });
-                    } else {
-                        const errData = await r.json();
-                        html += `<div class="result-item">
-                          <div class="content" style="color:#8b949e;margin-bottom:8px">⏳ Этот тред не синхронизирован в CacheProxy</div>
-                          <button onclick="syncJunkThread('${sid}')" style="font-size:13px">📥 Синхронизировать в CacheProxy</button>
-                          <span id="junk-sync-status-${sid}" style="font-size:12px;color:#8b949e;margin-left:8px"></span>
-                        </div>`;
                     }
                 } catch (e) {
                     html += `<div class="result-item"><div class="content" style="color:#f85149">⚠️ Ошибка: ${escapeHtml(e.message)}</div></div>`;
@@ -1194,8 +1229,8 @@
                     );
                     const data = await r.json();
                     if (r.ok) {
-                        statusEl.textContent = `✅ Чисто: -${data.thinking_removed}🤔 -${data.tooluse_removed}🔧 -${data.mention_removed}🔗 -${data.image_removed}🖼️ -${data.image_url_removed}📎 tool_results:${data.tool_results_cleared}`;
-                        // Refresh the view
+                        statusEl.textContent = `✅ Чисто: -${data.thinking_removed}🤔 -${data.tooluse_removed}🔧 -${data.mention_removed}🔗 -${data.image_removed}🖼️`;
+                        // Reload the thread to show cleaned messages
                         showJunkThread(sid);
                     } else {
                         statusEl.textContent = `❌ ${data.detail || "Ошибка"}`;

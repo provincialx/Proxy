@@ -18,6 +18,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+import logging
 from typing import Any
 
 import httpx
@@ -28,6 +29,7 @@ sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 # Add app dir to path for utils
 sys.path.insert(0, str(Path(__file__).parent))
 from app.utils import strip_thinking
+logger = logging.getLogger(__name__)
 
 # ── Конфигурация ────────────────────────────────────────────
 
@@ -289,6 +291,7 @@ def _get_threads(projects: list[str] | None = None) -> list[dict[str, Any]]:
                 "messages": messages,
                 "created_at": row.get("created_at", ""),
                 "updated_at": row.get("updated_at", ""),
+                "archived": row.get("archived", 0),
             }
         )
 
@@ -315,46 +318,45 @@ def _get_threads(projects: list[str] | None = None) -> list[dict[str, Any]]:
 def _send_to_cacheproxy(
     thread: dict[str, Any],
     url: str,
+    archived: bool = True,
+    existing_session_id: str | None = None,
+    start_from: int = 0,
 ) -> bool:
-    """Create session in CacheProxy, send content, archive."""
+    """Send thread content to CacheProxy.
+
+    If existing_session_id is provided — appends only new messages (start_from..end).
+    Otherwise creates a new session and sends all messages.
+    """
     try:
         with httpx.Client(base_url=url, timeout=120) as client:
-            # 0. Delete existing session with same title+project (clean slate)
-            r = client.get(
-                "/sessions",
-                params={"limit": 100},
-            )
-            if r.status_code == 200:
-                existing = r.json()
-                items = existing.get("sessions", []) if isinstance(existing, dict) else (existing or [])
-                for s in items:
-                    if s.get("title") == thread["title"] and s.get("project") == thread["project"]:
-                        sid = s.get("id")
-                        if sid:
-                            client.delete(f"/sessions/{sid}")
-                            print(f"    ~ {thread['title'][:60]} replaced")
-                            break
+            if existing_session_id:
+                # Use existing session — only send new messages
+                sid = existing_session_id
+                new_msgs = thread["messages"][start_from:]
+                if not new_msgs:
+                    print(f"    ✓ {thread['title'][:60]} up to date")
+                    return True
+                print(f"    ~ {thread['title'][:60]} +{len(new_msgs)} new messages")
+            else:
+                # Create new session and send all messages
+                r = client.post(
+                    "/sessions",
+                    json={
+                        "title": thread["title"],
+                        "project": thread["project"],
+                    },
+                )
+                if r.status_code not in (200, 201):
+                    print(f"    [ERR] Create session failed: {r.status_code}")
+                    return False
+                sid = r.json()["id"]
+                new_msgs = thread["messages"]
 
-            # 1. Create session
-            r = client.post(
-                "/sessions",
-                json={
-                    "title": thread["title"],
-                    "project": thread["project"],
-                },
-            )
-            if r.status_code not in (200, 201):
-                print(f"    [ERR] Create session failed: {r.status_code}")
-                return False
-            sid = r.json()["id"]
-
-            # 2. Send each message individually with its original role
-            for msg in thread["messages"]:
-                # Cut thinking blocks — save space, reduce noise in search
+            # Send messages
+            for msg in new_msgs:
                 content = strip_thinking(msg["content"])
                 if not content:
                     continue
-                # Truncate extremely long messages (tool results etc)
                 if len(content) > 40000:
                     content = content[:40000] + "\n\n... (truncated)"
                 r = client.post(
@@ -368,17 +370,18 @@ def _send_to_cacheproxy(
                 if r.status_code not in (200, 201):
                     print(f"    [ERR] Send message failed: {r.status_code}")
                     return False
-                # Small delay to not hammer the API
                 time.sleep(0.005)
 
-            # 3. Archive session (consolidates into context for search)
-            r = client.post(f"/sessions/{sid}/archive")
-            if r.status_code not in (200, 201):
-                print(f"    [ERR] Archive failed: {r.status_code}")
-                return False
+            # Archive session if archived flag is True
+            if archived:
+                r = client.post(f"/sessions/{sid}/archive")
+                if r.status_code not in (200, 201):
+                    print(f"    [ERR] Archive failed: {r.status_code}")
+                    return False
 
+            total_msg = len(new_msgs) if existing_session_id else len(thread["messages"])
             print(
-                f"    ✓ {thread['title'][:60]} ({len(thread['messages'])} msg, {thread['project']})"
+                f"    ✓ {thread['title'][:60]} ({total_msg} msg, {thread['project']})"
             )
             return True
 
@@ -430,13 +433,196 @@ def run_sync(
     threads = _get_threads(projects)
     result["total"] = len(threads)
 
+    # Fetch existing sessions from PostgreSQL with counts
+    existing: dict[tuple[str, str], dict] = {}
+    try:
+        with httpx.Client(base_url=url, timeout=30) as client:
+            r = client.get("/sessions", params={"limit": 100})
+            if r.status_code == 200:
+                sessions = r.json()
+                items = sessions.get("sessions", []) if isinstance(sessions, dict) else (sessions or [])
+                for s in items:
+                    existing[(s.get("title", ""), s.get("project", ""))] = s
+    except Exception:
+        pass
+
     for t in threads:
-        if _send_to_cacheproxy(t, url):
-            result["synced"] += 1
+        key = (t["title"], t["project"])
+        thread_msg_count = len(t["messages"])
+        existing_session = existing.get(key)
+
+        if existing_session:
+            pg_count = existing_session.get("message_count", 0)
+            session_id = existing_session["id"]
+
+            if pg_count < thread_msg_count:
+                # Incremental sync — only new messages
+                if _send_to_cacheproxy(
+                    t, url,
+                    archived=bool(t.get("archived", 0)),
+                    existing_session_id=session_id,
+                    start_from=pg_count,
+                ):
+                    existing[key] = existing_session
+                    result["synced"] += 1
+                else:
+                    result["errors"].append(f"Failed: {t['title'][:60]}")
+            elif pg_count == thread_msg_count:
+                # Up to date — skip
+                pass
+            else:
+                # PG has more than thread — shouldn't happen, skip
+                pass
         else:
-            result["errors"].append(f"Failed: {t['title'][:60]}")
+            # New session — send all messages
+            if _send_to_cacheproxy(t, url, archived=bool(t.get("archived", 0))):
+                result["synced"] += 1
+            else:
+                result["errors"].append(f"Failed: {t['title'][:60]}")
 
     return result
+
+
+def _clean_local_threads_db() -> dict:
+    """Clean all threads in local threads.db — remove Thinking, Mention, Image (keep ToolUse/ToolResult)."""
+    import json as json_lib
+    import sqlite3
+    import zstandard
+    from io import BytesIO
+    from pathlib import Path
+
+    threads_db = Path.home() / "AppData" / "Local" / "Zed" / "threads" / "threads.db"
+    if not threads_db.exists():
+        threads_db = Path.home() / ".local" / "share" / "zed" / "threads" / "threads.db"
+    if not threads_db.exists():
+        return {"error": "threads.db not found"}
+
+    stats = {
+        "threads_total": 0,
+        "threads_cleaned": 0,
+        "thinking_removed": 0,
+        "tooluse_removed": 0,
+        "mention_removed": 0,
+        "image_removed": 0,
+        "tool_results_cleared": 0,
+    }
+
+    def _contains_image_url(obj, depth=0):
+        if depth > 10:
+            return False
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if isinstance(v, str) and "image_url" in v.lower():
+                    return True
+                if _contains_image_url(v, depth + 1):
+                    return True
+        elif isinstance(obj, list):
+            for item in obj:
+                if _contains_image_url(item, depth + 1):
+                    return True
+        return False
+
+    def _clean_blocks(blocks):
+        result = []
+        for b in blocks:
+            if not isinstance(b, dict):
+                continue
+            bk = next(iter(b), "")
+            if "Thinking" in bk or "Mention" in bk or "Image" in bk:
+                continue
+            if _contains_image_url(b):
+                continue
+            if "Text" in bk:
+                result.append(b)
+        return result
+
+    try:
+        conn = sqlite3.connect(str(threads_db))
+        cur = conn.cursor()
+        cur.execute("SELECT id, data FROM threads")
+        rows = cur.fetchall()
+        conn.close()
+    except Exception as e:
+        return {"error": f"Failed to read threads.db: {e}"}
+
+    stats["threads_total"] = len(rows)
+    dctx = zstandard.ZstdDecompressor()
+    cctx = zstandard.ZstdCompressor(level=3)
+    updated_count = 0
+
+    for thread_id, raw_data in rows:
+        if not raw_data:
+            continue
+        try:
+            raw = raw_data.encode("latin-1") if isinstance(raw_data, str) else raw_data
+            with dctx.stream_reader(BytesIO(raw)) as reader:
+                thread_data = json_lib.loads(reader.read().decode("utf-8"))
+        except Exception:
+            continue
+
+        modified = False
+        cleaned_msgs = []
+        for msg in thread_data.get("messages", []):
+            if isinstance(msg, str):
+                cleaned_msgs.append(msg)
+                continue
+            cleaned = {}
+            for key, value in msg.items():
+                if key in ("User", "Agent"):
+                    inner = dict(value) if isinstance(value, dict) else {}
+                    content = inner.get("content", [])
+                    if isinstance(content, list):
+                        new_content = []
+                        for block in content:
+                            if not isinstance(block, dict):
+                                continue
+                            bk = next(iter(block), "")
+                            if "Thinking" in bk:
+                                stats["thinking_removed"] += 1
+                                modified = True
+                                continue
+                            if "Mention" in bk:
+                                stats["mention_removed"] += 1
+                                modified = True
+                                continue
+                            if "Image" in bk:
+                                stats["image_removed"] += 1
+                                modified = True
+                                continue
+                            if _contains_image_url(block):
+                                if "ToolUse" in bk:
+                                    stats["tooluse_removed"] += 1
+                                modified = True
+                                continue
+                            # Keep all other blocks (Text, ToolUse, ToolResult, etc.)
+                            new_content.append(block)
+                        inner["content"] = new_content
+
+                    # Track modifications to inner dict metadata
+                    if "ToolResults" in inner or "reasoning_details" in inner:
+                        modified = True
+                    inner.pop("ToolResults", None)
+                    inner.pop("reasoning_details", None)
+
+                    cleaned[key] = inner
+                else:
+                    cleaned[key] = value
+            # Keep ALL messages — system prompt etc. are essential for API provider
+            cleaned_msgs.append(cleaned)
+
+        if modified:
+            thread_data["messages"] = cleaned_msgs
+            text = json_lib.dumps(thread_data, ensure_ascii=False, separators=(",", ":"))
+            compressed = cctx.compress(text.encode("utf-8"))
+            t_conn = sqlite3.connect(str(threads_db))
+            t_cur = t_conn.cursor()
+            t_cur.execute("UPDATE threads SET data = ? WHERE id = ?", (compressed, thread_id))
+            t_conn.commit()
+            t_conn.close()
+            updated_count += 1
+
+    stats["threads_cleaned"] = updated_count
+    return stats
 
 
 def cmd_sync(args: argparse.Namespace) -> None:
