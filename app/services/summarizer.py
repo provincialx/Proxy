@@ -102,9 +102,9 @@ class Summarizer:
 
         # Fallback: concatenate all messages into one context
         consolidated = "\n\n".join(all_texts)
-        # Truncate to avoid bloating the DB
-        if len(consolidated) > 50000:
-            consolidated = consolidated[:50000] + "\n\n...[truncated]"
+        # Limit to 200k chars — caller splits into chunks
+        if len(consolidated) > 200000:
+            consolidated = consolidated[:200000] + "\n\n...[truncated]"
 
         return {
             "title": session_title or "Archived session",

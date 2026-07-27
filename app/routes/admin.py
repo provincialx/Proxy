@@ -334,11 +334,9 @@ def admin_sanitize():
 
 @router.post("/resummarize", response_model=ReSummarizeResult)
 def admin_resummarize(session_id: str | None = None):
-    """Re-summarize archived sessions using LLM.
+    """Re-summarize active sessions.
 
-    Without session_id — processes ALL archived sessions.
-    With session_id — processes only that session.
-    Replaces per-message contexts with a single LLM summary.
+    Splits large contexts into chunks (~40000 chars) to avoid truncation.
     """
     db = SessionLocal()
     try:
@@ -378,23 +376,46 @@ def admin_resummarize(session_id: str | None = None):
                 # Delete existing contexts for this session
                 db.query(Context).filter(Context.session_id == s.id).delete()
 
-                ctx = Context(
-                    session_id=s.id,
-                    summary=result.get("title")
-                    or f"Archived session: {s.title or 'Untitled'}",
-                    content=result["summary"],
-                    keywords=result.get("keywords") or (s.project or ""),
-                    token_count=sum(m.tokens_used or 0 for m in messages),
-                )
-                try:
-                    from app.services import EmbeddingService
+                summary_text = result["summary"]
+                session_title = result.get("title") or s.title or "Untitled"
+                project = s.project or ""
 
-                    ctx.embedding = EmbeddingService.embed(ctx.content)
-                except Exception as e:
-                    print(f"[WARN] Resummarize embedding failed: {e}")
-                db.add(ctx)
-                summarized += 1
-                print(f"  ✓ Resummarized {s.id} ({s.title})")
+                # Split into chunks of ~40000 chars (at natural breaks)
+                chunk_size = 40000
+                chunks = []
+                if len(summary_text) > chunk_size:
+                    for i in range(0, len(summary_text), chunk_size):
+                        chunk = summary_text[i:i + chunk_size]
+                        # Chunk suffix
+                        total_chunks = (len(summary_text) // chunk_size) + 1
+                        chunk_num = (i // chunk_size) + 1
+                        suffix = f"\n\n[...part {chunk_num}/{total_chunks}]"
+                        chunks.append(chunk + suffix)
+                else:
+                    chunks.append(summary_text)
+
+                for ci, chunk_content in enumerate(chunks):
+                    chunk_title = session_title
+                    if len(chunks) > 1:
+                        chunk_title = f"{session_title} (part {ci + 1})"
+
+                    ctx = Context(
+                        session_id=s.id,
+                        summary=chunk_title,
+                        content=chunk_content,
+                        keywords=project,
+                        token_count=sum(m.tokens_used or 0 for m in messages),
+                    )
+                    try:
+                        from app.services import EmbeddingService
+
+                        ctx.embedding = EmbeddingService.embed(ctx.content)
+                    except Exception as e:
+                        print(f"[WARN] Resummarize embedding failed: {e}")
+                    db.add(ctx)
+
+                summarized += len(chunks)
+                print(f"  ✓ Resummarized {s.id} ({s.title}) — {len(chunks)} part(s)")
             except Exception as e:
                 errors.append(str(e))
                 print(f"[WARN] Resummarize error session {s.id}: {e}")

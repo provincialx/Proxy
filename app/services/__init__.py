@@ -88,8 +88,6 @@ class EmbeddingService:
 
         if base_query is not None:
             q = base_query
-        else:
-            q = db.query(Context).filter(Context.embedding.isnot(None))
             if project:
                 q = q.join(Context.session).filter(SessionModel.project == project)
         contexts: list[Context] = q.all()
