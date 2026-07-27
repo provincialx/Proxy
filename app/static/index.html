@@ -275,10 +275,9 @@
         <div class="header">
             <div><h1>🧠 CacheProxy</h1></div>
             <div style="display:flex;align-items:center;gap:12px">
-                <span id="header-subtitle">Chat Context Caching</span>
-                <select id="lang-switcher" onchange="switchLang(this.value)" style="font-size:12px;padding:2px 6px;width:auto;min-width:80px">
-                    <option value="en">🇬🇧 EN</option>
-                    <option value="ru">🇷🇺 RU</option>
+                <select id="lang-switcher" onchange="switchLang(this.value)" style="font-size:12px;padding:2px 6px;width:auto;min-width:70px">
+                    <option value="en">EN</option>
+                    <option value="ru">RU</option>
                 </select>
             </div>
         </div>
@@ -334,9 +333,9 @@
                             style="max-width: 140px"
                             onchange="loadSessions()"
                         >
-                            <option value="">Все статусы</option>
-                            <option value="active">🟢 Активные</option>
-                            <option value="archived">📦 Архивные</option>
+                            <option value="" data-i18n="sessions.status_all">Все статусы</option>
+                            <option value="active" data-i18n="sessions.active">🟢 Активные</option>
+                            <option value="archived" data-i18n="sessions.archived">📦 Архивные</option>
                         </select>
                         <button onclick="loadSessions()" data-i18n="sessions.refresh">🔄 Обновить</button>
                     </div>
@@ -470,7 +469,6 @@
             // ─── Localization ────────────────────────────────────
             const LANG = {
                 en: {
-                    'header.subtitle': 'Chat Context Caching',
                     'tab.search': '🔍 Search',
                     'tab.sessions': '📁 Sessions',
                     'tab.junk': '🗑️ Junk',
@@ -570,7 +568,6 @@
                     'common.deselect_all': 'Deselect All',
                 },
                 ru: {
-                    'header.subtitle': 'Кеширование контекста чатов',
                     'tab.search': '🔍 Поиск',
                     'tab.sessions': '📁 Сессии',
                     'tab.junk': '🗑️ Junk',
