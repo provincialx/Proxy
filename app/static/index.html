@@ -396,10 +396,12 @@
                         <button id="btn-daemon" onclick="toggleDaemon()" data-i18n="admin.daemon_off">
                             ▶️ Демон
                         </button>
-                        <button class="danger" onclick="resetDb()" data-i18n="admin.db_reset">
+                        <button onclick="resummarizeAll()" data-i18n="admin.resummarize">📝 Ресаммари</button>
+                    </div>
+                    <div class="row" style="flex-wrap: wrap; gap: 8px; margin-top: 4px">
+                        <button class="danger" onclick="resetDb()" data-i18n="admin.db_reset" style="opacity:0.6;font-size:12px;padding:4px 12px">
                             🗑️ DB Reset
                         </button>
-                        <button onclick="resummarizeAll()" data-i18n="admin.resummarize">📝 Ресаммари</button>
                     </div>
                     <div
                         id="admin-log"
