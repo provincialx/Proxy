@@ -203,7 +203,7 @@ Main tab — lists all dialogs from PostgreSQL. Displays session title, project,
 | Button | Action |
 |--------|--------|
 | 🔄 **Sync selected** | Reads threads from Zed's `threads.db` and sends new/changed data to PostgreSQL. **Incremental** — only new messages are uploaded. Select which projects to sync via checkboxes above. |
-| 🧹 **Clean selected** | Removes garbage (Thinking blocks, Mentions, Images) from Zed's `threads.db` for selected projects. This cleans up the raw data that Zed stores. ToolUse blocks are preserved. |
+| 🧹 **Clean selected** | Removes garbage (Thinking blocks, Mentions, Images) from Zed's `threads.db` for selected projects. This cleans up the raw data that Zed stores. ToolUse blocks are preserved. **Important:** Close Zed before cleaning — otherwise Zed's cache will restore the garbage on next restart. 🔄 **Sync selected** works regardless of whether Zed is open. |
 | ▶️ **Daemon** | Starts/stops a background thread that runs Sync automatically every 60 seconds. |
 | 📝 **Resummarize** | Rebuilds context entries for **active** sessions. Concatenates all session messages into one or more searchable context chunks (max ~40000 chars each). Run this after Sync to make new data searchable. |
 | 🗑️ **DB Reset** | **Danger zone.** Deletes ALL sessions, messages, and contexts from PostgreSQL. Model cache is also cleared. **Chats are NOT lost** — they will be restored from Zed on the next Sync. Located in a separate row to prevent accidental clicks. |
@@ -583,7 +583,7 @@ $env:PYTHONPATH = "D:\Projects\CacheProxy"
 | Кнопка | Действие |
 |--------|----------|
 | 🔄 **Sync выбранные** | Читает треды из `threads.db` Zed и отправляет новые/изменённые данные в PostgreSQL. **Инкрементально** — только новые сообщения. Выберите проекты для синхронизации через чекбоксы. |
-| 🧹 **Очистить выбранные** | Удаляет мусор (Thinking блоки, Mentions, Images) из `threads.db` Zed для выбранных проектов. Очищает сырые данные. ToolUse блоки сохраняются. |
+| 🧹 **Очистить выбранные** | Удаляет мусор (Thinking блоки, Mentions, Images) из `threads.db` Zed для выбранных проектов. Очищает сырые данные. ToolUse блоки сохраняются. **Важно:** Закройте Zed перед очисткой — иначе кеш Zed восстановит мусор при следующем запуске. 🔄 **Sync выбранные** работает независимо от того, открыт Zed или нет. |
 | ▶️ **Демон** | Запускает/останавливает фоновый поток, который автоматически выполняет Sync каждые 60 секунд. |
 | 📝 **Ресаммари** | Перестраивает контексты для **активных** сессий. Склеивает все сообщения сессии в один или несколько контекстов (до ~40000 символов каждый). Запускайте после Sync, чтобы новые данные стали доступны для поиска. |
 | 🗑️ **DB Reset** | **Опасно.** Удаляет ВСЕ сессии, сообщения и контексты из PostgreSQL. Кеш модели эмбеддингов тоже очищается. **Чаты НЕ теряются** — они восстановятся из Zed при следующей синхронизации. Вынесен в отдельную строку, чтобы не нажать случайно. |
