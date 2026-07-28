@@ -1111,6 +1111,7 @@
               <span class="score">${(res.score * 100).toFixed(1)}%</span> ${__('search.results_match')}
               ${res.summary ? `· ${res.summary}` : ""}
               <span class="badge project">${getProjectName(res.session_id)}</span>
+              <div style="font-size:11px;font-family:monospace;color:#8b949e;margin-top:2px">ID: ${res.id}</div>
             </div>
             <button class="btn-del" onclick="deleteContext('${res.id}')" title="${__('common.delete')}">✕</button>
           </div>
