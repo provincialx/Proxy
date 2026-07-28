@@ -1,8 +1,13 @@
 # CacheProxy
 
-Proxy service for caching chat context from Zed into PostgreSQL with semantic search.
+A tool for storing chat context from any project in PostgreSQL.
+Works exclusively with the [Zed](https://zed.dev) editor.
 
-Stores dialog history and allows finding relevant context from previous conversations.
+CacheProxy operates as an **MCP server** — it provides your AI assistant with
+persistent memory across sessions via the Model Context Protocol.
+
+It also compresses and summarizes chats to reduce storage load and save tokens
+when searching through conversation history.
 
 ---
 
@@ -79,6 +84,26 @@ POST   /admin/resummarize                  — re-summarize sessions
 ---
 
 ## Installation & Setup
+
+### ⚠️ Before You Start — Backup Your Zed Data
+
+CacheProxy reads your local Zed databases directly. While it never writes to them,
+it's good practice to keep backups.
+
+Copy these folders to a safe location (e.g. `D:\Backups\Zed\`):
+
+```powershell
+# 1. Thread content (chat messages, zstd-compressed)
+copy "$env:LOCALAPPDATA\Zed\threads\threads.db" "D:\Backups\Zed\threads.db"
+
+# 2. Global database (workspace state, sessions)
+copy "$env:LOCALAPPDATA\Zed\db\0-global" "D:\Backups\Zed\0-global" /E
+
+# 3. Stable database (sidebar threads, folder paths)
+copy "$env:LOCALAPPDATA\Zed\db\0-stable" "D:\Backups\Zed\0-stable" /E
+```
+
+To restore later, simply copy them back.
 
 ### Requirements
 - Windows 10+
@@ -197,7 +222,6 @@ A table view of the `sidebar_threads` table from Zed's `db.sqlite`. Shows metada
 **Features:**
 - **Sort by any column** — click column header
 - **Filter by title/folder/project** — text input
-- **✕ Delete row** — removes the entry from `sidebar_threads`
 
 ### Messages Display
 
@@ -358,9 +382,14 @@ llm_enabled=false
 
 # CacheProxy
 
-Прокси-сервис для кеширования контекста чатов из Zed в PostgreSQL с семантическим поиском.
+Инструмент для хранения контекста любого проекта в базе данных PostgreSQL.
+Работает только с редактором [Zed](https://zed.dev).
 
-Хранит историю диалогов и позволяет находить релевантный контекст из предыдущих общений.
+CacheProxy работает как **MCP-сервер** — он предоставляет вашему AI-ассистенту
+постоянную память между сессиями через протокол Model Context Protocol.
+
+Также сжимает и суммаризирует чаты, снижая нагрузку на хранилище и экономя
+токены при поиске по истории диалогов.
 
 ---
 
@@ -437,6 +466,26 @@ POST   /admin/resummarize                  — ре-суммаризация
 ---
 
 ## Установка и запуск
+
+### ⚠️ Перед началом — сделайте бэкап данных Zed
+
+CacheProxy читает локальные базы Zed напрямую. Хотя он никогда в них не пишет,
+рекомендуется сохранить резервную копию.
+
+Скопируйте следующие папки в надёжное место (например `D:\Backups\Zed\`):
+
+```powershell
+# 1. Содержимое чатов (сообщения, сжатые zstd)
+copy "$env:LOCALAPPDATA\Zed\threads\threads.db" "D:\Backups\Zed\threads.db"
+
+# 2. Глобальная база (состояние рабочего пространства, сессии)
+copy "$env:LOCALAPPDATA\Zed\db\0-global" "D:\Backups\Zed\0-global" /E
+
+# 3. Стабильная база (сайдбар, пути к проектам)
+copy "$env:LOCALAPPDATA\Zed\db\0-stable" "D:\Backups\Zed\0-stable" /E
+```
+
+Для восстановления просто скопируйте файлы обратно.
 
 ### Требования
 - Windows 10+
@@ -553,7 +602,6 @@ $env:PYTHONPATH = "D:\Projects\CacheProxy"
 **Возможности:**
 - **Сортировка по колонкам** — клик по заголовку
 - **Фильтр** — по названию/папке/проекту
-- **✕ Удалить строку** — удаляет запись из `sidebar_threads`
 
 ### Отображение сообщений
 
