@@ -4,7 +4,7 @@ import os
 # Force UTF-8 encoding for stdout/stderr to handle emoji fallbacks
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
-sys.path.insert(0, 'D:/Projects/CacheProxy')
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 """CacheProxy — FastAPI приложение для кеширования чатов в PostgreSQL."""
 
