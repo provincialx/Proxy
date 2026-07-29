@@ -265,19 +265,22 @@ Runs as a separate process, communicates via stdio using the MCP protocol.
 | `list_sessions` | List sessions (no content) | `project`, `status`, `limit` |
 | `get_recent_contexts` | Latest contexts without search | `project`, `limit` |
 
+Skill examples in folder "Skills"
+
 ### Setup in Zed
 
 In `~/.config/zed/settings.json`:
 
 ```json
 {
-  "mcp": {
+  "context_servers": {
     "cacheproxy": {
+      "enabled": true,
+      "env": {},
       "command": "D:\\Projects\\CacheProxy\\.venv\\Scripts\\python.exe",
-      "args": ["D:\\Projects\\CacheProxy\\mcp_server.py"]
+      "args": ["D:\\Projects\\CacheProxy\\mcp_server.py"],
     }
-  }
-}
+  },
 ```
 
 ### Requirements
@@ -645,19 +648,22 @@ MCP-сервер даёт AI-ассистенту Zed прямой доступ 
 | `list_sessions` | Список сессий (без контента) | `project`, `status`, `limit` |
 | `get_recent_contexts` | Последние контексты без поиска | `project`, `limit` |
 
+Примеры скилов в папке "Skills"
+
 ### Настройка в Zed
 
 В `~/.config/zed/settings.json`:
 
 ```json
 {
-  "mcp": {
+  "context_servers": {
     "cacheproxy": {
+      "enabled": true,
+      "env": {},
       "command": "D:\\Projects\\CacheProxy\\.venv\\Scripts\\python.exe",
-      "args": ["D:\\Projects\\CacheProxy\\mcp_server.py"]
+      "args": ["D:\\Projects\\CacheProxy\\mcp_server.py"],
     }
-  }
-}
+  },
 ```
 
 ### Требования
