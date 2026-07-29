@@ -97,13 +97,13 @@ Copy these folders to a safe location (e.g. `D:\Backups\Zed\`):
 New-Item -ItemType Directory -Force -Path "D:\Backups\Zed\"
 
 # 1. Thread content (chat messages, zstd-compressed)
-copy "$env:LOCALAPPDATA\Zed\threads\threads.db" "D:\Backups\Zed\threads.db"
+Copy-Item "$env:LOCALAPPDATA\Zed\threads\threads.db" "D:\Backups\Zed\threads.db"
 
 # 2. Global database (workspace state, sessions)
-copy "$env:LOCALAPPDATA\Zed\db\0-global" "D:\Backups\Zed\0-global" /E
+Copy-Item -Recurse "$env:LOCALAPPDATA\Zed\db\0-global" "D:\Backups\Zed\0-global"
 
 # 3. Stable database (sidebar threads, folder paths)
-copy "$env:LOCALAPPDATA\Zed\db\0-stable" "D:\Backups\Zed\0-stable" /E
+Copy-Item -Recurse "$env:LOCALAPPDATA\Zed\db\0-stable" "D:\Backups\Zed\0-stable"
 ```
 
 To restore later, simply copy them back.
@@ -500,13 +500,13 @@ CacheProxy читает локальные базы Zed напрямую. Хот
 New-Item -ItemType Directory -Force -Path "D:\Backups\Zed\"
 
 # 1. Содержимое чатов (сообщения, сжатые zstd)
-copy "$env:LOCALAPPDATA\Zed\threads\threads.db" "D:\Backups\Zed\threads.db"
+Copy-Item "$env:LOCALAPPDATA\Zed\threads\threads.db" "D:\Backups\Zed\threads.db"
 
 # 2. Глобальная база (состояние рабочего пространства, сессии)
-copy "$env:LOCALAPPDATA\Zed\db\0-global" "D:\Backups\Zed\0-global" /E
+Copy-Item -Recurse "$env:LOCALAPPDATA\Zed\db\0-global" "D:\Backups\Zed\0-global"
 
 # 3. Стабильная база (сайдбар, пути к проектам)
-copy "$env:LOCALAPPDATA\Zed\db\0-stable" "D:\Backups\Zed\0-stable" /E
+Copy-Item -Recurse "$env:LOCALAPPDATA\Zed\db\0-stable" "D:\Backups\Zed\0-stable"
 ```
 
 Для восстановления просто скопируйте файлы обратно.
