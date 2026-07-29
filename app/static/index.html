@@ -1577,10 +1577,20 @@
                                 : t.archived === 0
                                   ? "🟢"
                                   : "—";
+                        
+                        // Build folder dropdown from availableProjects
+                        let folderOptions = `<option value="${escapeHtml(t.folder_paths || "")}" selected>${escapeHtml(t.folder_paths || "—")}</option>`;
+                        availableProjects.forEach((p) => {
+                            const path = `D:\\Projects\\${p}`;
+                            if (path !== t.folder_paths) {
+                                folderOptions += `<option value="${escapeHtml(path)}">${escapeHtml(path)}</option>`;
+                            }
+                        });
+                        
                         html += `<tr>`;
                         html += `<td class="col-title" title="${escapeHtml(t.title || "")}">${escapeHtml(t.title || "—")}</td>`;
                         html += `<td style="font-family:monospace;font-size:12px" title="${escapeHtml(t.session_id || "")}">${escapeHtml(t.session_id || "—")}</td>`;
-                        html += `<td class="col-path" title="${escapeHtml(t.folder_paths || "")}">${escapeHtml(t.folder_paths || "—")}</td>`;
+                        html += `<td class="col-path"><select onchange="updateSidebarFolder('${escapeHtml(t.session_id)}', this.value)" style="font-size:12px;padding:2px 4px;max-width:200px">${folderOptions}</select></td>`;
                         html += `<td>${archived}</td>`;
                         html += `<td>${formatDate(t.interacted_at)}</td>`;
                         html += `<td>${formatDate(t.updated_at)}</td>`;
@@ -1594,6 +1604,19 @@
                     container.innerHTML = html;
                 } catch (e) {
                     container.innerHTML = `<div class="empty" style="color:#f85149">${__('common.error', { msg: escapeHtml(e.message) })}</div>`;
+                }
+            }
+
+            async function updateSidebarFolder(sessionId, newPath) {
+                try {
+                    const r = await fetch(`${BASE}/admin/sidebar-threads/${sessionId}/folder?folder_paths=${encodeURIComponent(newPath)}`, {
+                        method: "PUT",
+                    });
+                    if (!r.ok) {
+                        console.error('Failed to update folder', await r.text());
+                    }
+                } catch (e) {
+                    console.error('Failed to update folder', e);
                 }
             }
 

@@ -12,12 +12,12 @@ class Settings(BaseSettings):
 
     db_host: str = "localhost"
     db_port: int = 5432
-    db_name: str = "Proxy"
-    db_user: str = "ProxyUser"
+    db_name: str = "proxy"
+    db_user: str = "proxyuser"
     db_password: str = "1"
 
     app_host: str = "0.0.0.0"
-    app_port: int = 8100
+    app_port: int = 8200
     debug: bool = False
 
     # LLM summarization

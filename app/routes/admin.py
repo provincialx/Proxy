@@ -803,6 +803,39 @@ def admin_sidebar_threads():
     return {"threads": rows, "total": len(rows)}
 
 
+@router.put("/sidebar-threads/{session_id}/folder")
+def admin_update_sidebar_folder(session_id: str, folder_paths: str):
+    """Update folder_paths for a sidebar thread."""
+    import sqlite3
+
+    sidebar_db, _ = _zed_db_paths()
+    if not sidebar_db:
+        raise HTTPException(status_code=503, detail="Zed db.sqlite not found")
+
+    conn = sqlite3.connect(str(sidebar_db))
+    cur = conn.cursor()
+    # session_id might be stored as text or bytes
+    cur.execute(
+        "UPDATE sidebar_threads SET folder_paths = ? WHERE session_id = ?",
+        (folder_paths, session_id),
+    )
+    if cur.rowcount == 0:
+        # Try as hex bytes
+        try:
+            cur.execute(
+                "UPDATE sidebar_threads SET folder_paths = ? WHERE session_id = ?",
+                (folder_paths, bytes.fromhex(session_id.replace("-", ""))),
+            )
+        except Exception:
+            pass
+    conn.commit()
+    affected = cur.rowcount
+    conn.close()
+    if affected == 0:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    return {"updated": True, "session_id": session_id, "folder_paths": folder_paths}
+
+
 @router.post("/zed-threads/{thread_id}/sync")
 def admin_sync_zed_thread(thread_id: str):
     """Sync a single raw Zed thread into CacheProxy.

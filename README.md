@@ -144,7 +144,7 @@ app_host=0.0.0.0
 app_port=8200
 debug=false
 llm_enabled=false
-"@ | Out-File -Encoding UTF8 .env
+"@ | % { [System.IO.File]::WriteAllText("$pwd\.env", $_) }
 
 # Run migrations
 .\.venv\Scripts\alembic.exe upgrade head
@@ -526,7 +526,7 @@ app_host=0.0.0.0
 app_port=8200
 debug=false
 llm_enabled=false
-"@ | Out-File -Encoding UTF8 .env
+"@ | % { [System.IO.File]::WriteAllText("$pwd\.env", $_) }
 
 # Миграции
 .\.venv\Scripts\alembic.exe upgrade head
