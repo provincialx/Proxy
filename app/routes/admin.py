@@ -310,12 +310,15 @@ def admin_backup(path: str = ""):
     ]
 
     try:
-        os.makedirs(backup_dir, exist_ok=True)
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        backup_dir_with_ts = os.path.join(backup_dir, timestamp)
+        os.makedirs(backup_dir_with_ts, exist_ok=True)
         copied = []
         for name, src in sources:
             if not os.path.exists(src):
                 continue
-            dst = os.path.join(backup_dir, name)
+            dst = os.path.join(backup_dir_with_ts, name)
             if os.path.isdir(src):
                 shutil.copytree(src, dst, dirs_exist_ok=True)
             else:
@@ -324,7 +327,7 @@ def admin_backup(path: str = ""):
 
         return BackupResult(
             success=True,
-            backup_dir=backup_dir,
+            backup_dir=backup_dir_with_ts,
             files=copied,
         )
     except Exception as e:
