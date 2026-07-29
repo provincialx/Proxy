@@ -93,6 +93,9 @@ it's good practice to keep backups.
 Copy these folders to a safe location (e.g. `D:\Backups\Zed\`):
 
 ```powershell
+# Create backup folder
+New-Item -ItemType Directory -Force -Path "D:\Backups\Zed\"
+
 # 1. Thread content (chat messages, zstd-compressed)
 copy "$env:LOCALAPPDATA\Zed\threads\threads.db" "D:\Backups\Zed\threads.db"
 
@@ -493,6 +496,9 @@ CacheProxy читает локальные базы Zed напрямую. Хот
 Скопируйте следующие папки в надёжное место (например `D:\Backups\Zed\`):
 
 ```powershell
+# Создать папку для бэкапа
+New-Item -ItemType Directory -Force -Path "D:\Backups\Zed\"
+
 # 1. Содержимое чатов (сообщения, сжатые zstd)
 copy "$env:LOCALAPPDATA\Zed\threads\threads.db" "D:\Backups\Zed\threads.db"
 
