@@ -167,6 +167,14 @@ $env:PYTHONPATH = "D:\Projects\CacheProxy"
 
 The server starts at `http://127.0.0.1:8200/`, browser opens automatically.
 
+You can create .bat with the following content:
+
+```bat
+@echo off
+cd /d "D:\Projects\CacheProxy"
+".venv\Scripts\python.exe" -m uvicorn app.main:app --host 0.0.0.0 --port 8200
+```
+
 ### 5. Sync Chats from Zed
 
 Click **🔄 Sync selected** on the **Sessions** tab.
@@ -558,6 +566,14 @@ $env:PYTHONPATH = "D:\Projects\CacheProxy"
 ```
 
 Сервер запустится на `http://127.0.0.1:8200/`, браузер откроется автоматически.
+
+Вы можете создать .bat файл с содержимым:
+
+```bat
+@echo off
+cd /d "D:\Projects\CacheProxy"
+".venv\Scripts\python.exe" -m uvicorn app.main:app --host 0.0.0.0 --port 8200
+```
 
 ### 5. Синхронизация чатов из Zed
 
