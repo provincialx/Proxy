@@ -31,3 +31,4 @@ Thumbs.db
 *.bin
 server.log
 nohup.out
+CacheProxy_Backup/

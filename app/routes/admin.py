@@ -272,6 +272,20 @@ class BackupResult(BaseModel):
     error: str | None = None
 
 
+@router.get("/project-root")
+def admin_project_root():
+    """Return the project root and default backup path."""
+    import os
+
+    # admin.py is at app/routes/admin.py → 3 levels up is project root
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    default_backup = os.path.join(os.path.dirname(project_root), "CacheProxy_Backup")
+    return {
+        "project_root": project_root,
+        "default_backup_path": default_backup,
+    }
+
+
 @router.post("/backup", response_model=BackupResult)
 def admin_backup(path: str = ""):
     """Backup Zed databases: threads.db, 0-global, 0-stable."""
@@ -279,7 +293,7 @@ def admin_backup(path: str = ""):
     import shutil
 
     # Determine default path: next to project root
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     default_dir = os.path.join(os.path.dirname(project_root), "CacheProxy_Backup")
     backup_dir = path.strip() or default_dir
 

@@ -1657,11 +1657,11 @@
             // Init: load sessions + projects + daemon status
             setTimeout(() => {
                 localizePage();
-                // Set default backup path next to project
-                const bp = $("backup-path");
-                if (bp && !bp.value) {
-                    bp.value = "D:\\Projects\\CacheProxy_Backup";
-                }
+                // Set default backup path from backend
+                fetch(`${BASE}/admin/project-root`).then(r => r.json()).then(d => {
+                    const bp = $("backup-path");
+                    if (bp && !bp.value) bp.value = d.default_backup_path;
+                }).catch(() => {});
                 loadSessions();
                 loadProjects();
                 checkDaemonStatus();
