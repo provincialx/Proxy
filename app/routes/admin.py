@@ -265,6 +265,63 @@ def admin_db_reset():
     )
 
 
+class BackupResult(BaseModel):
+    success: bool
+    backup_dir: str
+    files: list[str]
+    error: str | None = None
+
+
+@router.post("/backup", response_model=BackupResult)
+def admin_backup(path: str = ""):
+    """Backup Zed databases: threads.db, 0-global, 0-stable."""
+    import os
+    import shutil
+
+    # Determine default path: next to project root
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    default_dir = os.path.join(os.path.dirname(project_root), "CacheProxy_Backup")
+    backup_dir = path.strip() or default_dir
+
+    zed_base = os.environ.get(
+        "LOCALAPPDATA",
+        os.path.join(os.path.expanduser("~"), ".local", "share"),
+    )
+    zed_path = os.path.join(zed_base, "Zed")
+
+    sources = [
+        ("threads.db", os.path.join(zed_path, "threads", "threads.db")),
+        ("0-global", os.path.join(zed_path, "db", "0-global")),
+        ("0-stable", os.path.join(zed_path, "db", "0-stable")),
+    ]
+
+    try:
+        os.makedirs(backup_dir, exist_ok=True)
+        copied = []
+        for name, src in sources:
+            if not os.path.exists(src):
+                continue
+            dst = os.path.join(backup_dir, name)
+            if os.path.isdir(src):
+                shutil.copytree(src, dst, dirs_exist_ok=True)
+            else:
+                shutil.copy2(src, dst)
+            copied.append(name)
+
+        return BackupResult(
+            success=True,
+            backup_dir=backup_dir,
+            files=copied,
+        )
+    except Exception as e:
+        return BackupResult(
+            success=False,
+            backup_dir=backup_dir,
+            files=[],
+            error=str(e),
+        )
+
+
 @router.post("/sanitize", response_model=SanitizeResult)
 def admin_sanitize():
     """Remove tool-role messages and resummarize affected sessions.

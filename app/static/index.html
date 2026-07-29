@@ -399,6 +399,11 @@
                         <button onclick="resummarizeAll()" data-i18n="admin.resummarize">📝 Ресаммари</button>
                     </div>
                     <div class="row" style="flex-wrap: wrap; gap: 8px; margin-top: 4px">
+                        <input id="backup-path" style="flex:2;font-size:12px" placeholder="Path to save backup" />
+                        <button onclick="runBackup()" style="font-size:12px;padding:4px 12px">💾 Backup</button>
+                        <span id="backup-status" style="font-size:12px;color:#8b949e;align-self:center"></span>
+                    </div>
+                    <div class="row" style="flex-wrap: wrap; gap: 8px; margin-top: 4px">
                         <button class="danger" onclick="resetDb()" data-i18n="admin.db_reset" style="opacity:0.6;font-size:12px;padding:4px 12px">
                             🗑️ DB Reset
                         </button>
@@ -1067,6 +1072,23 @@
                 }
             }
 
+            async function runBackup() {
+                const path = $("backup-path").value.trim();
+                const status = $("backup-status");
+                status.textContent = "⏳ Backing up...";
+                try {
+                    const r = await fetch(`${BASE}/admin/backup?path=${encodeURIComponent(path)}`, { method: "POST" });
+                    const data = await r.json();
+                    if (data.success) {
+                        status.textContent = `✅ Backed up: ${data.files.join(", ")} → ${data.backup_dir}`;
+                    } else {
+                        status.textContent = `❌ ${data.error || "Failed"}`;
+                    }
+                } catch (e) {
+                    status.textContent = `❌ ${e.message}`;
+                }
+            }
+
             // ─── SEARCH ───────────────────────────────────────────
 
             function truncate(str, max = 300) {
@@ -1635,6 +1657,11 @@
             // Init: load sessions + projects + daemon status
             setTimeout(() => {
                 localizePage();
+                // Set default backup path next to project
+                const bp = $("backup-path");
+                if (bp && !bp.value) {
+                    bp.value = "D:\\Projects\\CacheProxy_Backup";
+                }
                 loadSessions();
                 loadProjects();
                 checkDaemonStatus();
