@@ -399,7 +399,7 @@
                         <button onclick="resummarizeAll()" data-i18n="admin.resummarize">📝 Ресаммари</button>
                     </div>
                     <div class="row" style="flex-wrap: wrap; gap: 8px; margin-top: 4px">
-                        <input id="backup-path" style="width:200px;flex:none;font-size:12px" placeholder="Path to save backup" />
+                        <input id="backup-path" style="width:385px;flex:none;font-size:12px" placeholder="Path to save backup" />
                         <button onclick="runBackup()" style="font-size:12px;padding:4px 12px">💾 Backup</button>
                         <span id="backup-status" style="font-size:12px;color:#8b949e;align-self:center"></span>
                     </div>
@@ -546,7 +546,7 @@
                     'junk.archived': '📦 Archived',
                     'junk.broken': '💥 With errors',
                     'junk.empty': 'No threads',
-                    'junk.stats': '{total} threads · {msgs} msgs · ', 
+                    'junk.stats': '{total} threads · {msgs} msgs · ',
                     'junk.compressed': '{size} compressed',
                     'junk.decompressed': ' → {size} decompressed',
                     'junk.shown': 'Showing: {shown} of {total}',
@@ -1599,7 +1599,7 @@
                                 : t.archived === 0
                                   ? "🟢"
                                   : "—";
-                        
+
                         // Build folder dropdown from availableProjects
                         let folderOptions = `<option value="${escapeHtml(t.folder_paths || "")}" selected>${escapeHtml(t.folder_paths || "—")}</option>`;
                         availableProjects.forEach((p) => {
@@ -1608,7 +1608,7 @@
                                 folderOptions += `<option value="${escapeHtml(path)}">${escapeHtml(path)}</option>`;
                             }
                         });
-                        
+
                         html += `<tr>`;
                         html += `<td class="col-title" title="${escapeHtml(t.title || "")}">${escapeHtml(t.title || "—")}</td>`;
                         html += `<td style="font-family:monospace;font-size:12px" title="${escapeHtml(t.session_id || "")}">${escapeHtml(t.session_id || "—")}</td>`;
