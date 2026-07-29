@@ -325,9 +325,20 @@ def admin_backup(path: str = ""):
                 shutil.copy2(src, dst)
             copied.append(name)
 
+        import zipfile
+        zip_path = backup_dir_with_ts + ".zip"
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk(backup_dir_with_ts):
+                for f in files:
+                    file_path = os.path.join(root, f)
+                    arcname = os.path.relpath(file_path, os.path.dirname(backup_dir_with_ts))
+                    zf.write(file_path, arcname)
+        # Remove uncompressed folder
+        shutil.rmtree(backup_dir_with_ts, ignore_errors=True)
+
         return BackupResult(
             success=True,
-            backup_dir=backup_dir_with_ts,
+            backup_dir=zip_path,
             files=copied,
         )
     except Exception as e:
