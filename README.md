@@ -129,6 +129,8 @@ During installation, add Python to your PATH.
 
 ### 3. Clone & Configure
 
+Install git from [git-scm.com](https://git-scm.com/download/win).
+
 ```powershell
 cd D:\Projects
 git clone <url> CacheProxy
@@ -518,6 +520,8 @@ GRANT ALL PRIVILEGES ON DATABASE proxy TO proxyuser;
 Во время установки добавить Python в PATH.
 
 ### 3. Клонировать и настроить
+
+Установите Git с [git-scm.com](https://git-scm.com/download/win).
 
 ```powershell
 cd D:\Projects
