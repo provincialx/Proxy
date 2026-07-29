@@ -1111,7 +1111,7 @@
               <span class="score">${(res.score * 100).toFixed(1)}%</span> ${__('search.results_match')}
               ${res.summary ? `· ${res.summary}` : ""}
               <span class="badge project">${getProjectName(res.session_id)}</span>
-              <div style="font-size:11px;font-family:monospace;color:#8b949e;margin-top:2px">ID: ${res.id}</div>
+              <div style="font-size:11px;font-family:monospace;color:#8b949e;margin-top:2px">context_id: ${res.id}</div>
             </div>
             <button class="btn-del" onclick="deleteContext('${res.id}')" title="${__('common.delete')}">✕</button>
           </div>
@@ -1253,7 +1253,7 @@
 
                 let html = `<button class="secondary" onclick="loadSessions()" style="margin-bottom:12px">${__('sessions.back')}</button>
     <div style="font-size:13px;color:#8b949e;margin-bottom:12px">
-      <div style="font-size:11px;font-family:monospace;color:#8b949e;margin-bottom:4px">ID: ${sid}</div>
+      <div style="font-size:11px;font-family:monospace;color:#8b949e;margin-bottom:4px">session_id: ${sid}</div>
       ${__('sessions.msgs', { count: msgs.length })}
     </div>`;
 
