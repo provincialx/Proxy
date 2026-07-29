@@ -122,7 +122,12 @@ CREATE DATABASE proxy OWNER proxyuser;
 GRANT ALL PRIVILEGES ON DATABASE proxy TO proxyuser;
 ```
 
-### 2. Clone & Configure
+### 2. Install Python
+
+Download Python https://www.python.org/
+During installation, add Python to your PATH.
+
+### 3. Clone & Configure
 
 ```powershell
 cd D:\Projects
@@ -150,7 +155,7 @@ llm_enabled=false
 .\.venv\Scripts\alembic.exe upgrade head
 ```
 
-### 3. Run
+### 4. Run
 
 ```powershell
 cd D:\Projects\CacheProxy
@@ -160,7 +165,7 @@ $env:PYTHONPATH = "D:\Projects\CacheProxy"
 
 The server starts at `http://127.0.0.1:8200/`, browser opens automatically.
 
-### 4. Sync Chats from Zed
+### 5. Sync Chats from Zed
 
 Click **🔄 Sync selected** on the **Sessions** tab.
 
@@ -507,7 +512,12 @@ CREATE DATABASE proxy OWNER proxyuser;
 GRANT ALL PRIVILEGES ON DATABASE proxy TO proxyuser;
 ```
 
-### 2. Клонировать и настроить
+### 2. Установить Python
+
+Скачать с [python.org](https://www.python.org/downloads/windows/).
+Во время установки добавить Python в PATH.
+
+### 3. Клонировать и настроить
 
 ```powershell
 cd D:\Projects
@@ -535,7 +545,7 @@ llm_enabled=false
 .\.venv\Scripts\alembic.exe upgrade head
 ```
 
-### 3. Запустить
+### 4. Запустить
 
 ```powershell
 cd D:\Projects\CacheProxy
@@ -545,7 +555,7 @@ $env:PYTHONPATH = "D:\Projects\CacheProxy"
 
 Сервер запустится на `http://127.0.0.1:8200/`, браузер откроется автоматически.
 
-### 4. Синхронизация чатов из Zed
+### 5. Синхронизация чатов из Zed
 
 После запуска нажми **🔄 Sync выбранные** на вкладке **Сессии**.
 
